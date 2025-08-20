@@ -64,18 +64,19 @@ class _AppListScreenState extends State<AppListScreen> {
     });
 
     try {
-      // Load first batch with optimized settings
+      // Load ALL installed apps (not just first batch)
       final apps = await AppService.getInstalledApps(
         forceRefresh: forceRefresh,
         useCache: !forceRefresh,
-        maxResults: _pageSize,
+        maxResults: null, // Load all apps, no limit
         includeIcons: true,
-        optimizeForSpeed: true,
+        optimizeForSpeed: false, // Don't optimize for speed to get all apps
+        excludeSystemApps: true, // Exclude system apps for better UX
       ).timeout(
-        const Duration(seconds: 3),
+        const Duration(seconds: 10), // Longer timeout for all apps
         onTimeout: () {
           print('⚠️ App loading timeout, using cached data');
-          return AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
+          return AppService.getCachedApps() ?? [];
         },
       );
 
@@ -83,33 +84,40 @@ class _AppListScreenState extends State<AppListScreen> {
         setState(() {
           installedApps = apps;
           _currentPage = 0;
-          _hasMoreApps = apps.length >= _pageSize;
+          _hasMoreApps = false; // All apps loaded at once
           isLoading = false;
           isRefreshing = false;
         });
 
-        print('✅ Loaded ${apps.length} apps successfully');
+        print('✅ Loaded ${apps.length} apps successfully (ALL APPS)');
 
-        // Start preloading more apps in background
-        _startPreloading();
+        // No need to preload since all apps are already loaded
       }
     } catch (e) {
       print('❌ Error loading apps: $e');
       if (mounted) {
         setState(() {
-          // Use cached apps as fallback
-          installedApps =
-              AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
+          // Use cached apps as fallback (all cached apps)
+          installedApps = AppService.getCachedApps() ?? [];
           isLoading = false;
           isRefreshing = false;
         });
 
+        String errorMessage = 'Failed to load apps';
+        if (e.toString().contains('PERMISSION_ERROR')) {
+          errorMessage = 'Permission required to access installed apps. Please grant QUERY_ALL_PACKAGES permission.';
+        } else if (e.toString().contains('timeout')) {
+          errorMessage = 'App loading timed out. Please try again.';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load apps. Using cached data.'),
-            backgroundColor: Colors.orange,
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
             action: SnackBarAction(
               label: 'Retry',
+              textColor: Colors.white,
               onPressed: () => _loadInstalledApps(forceRefresh: true),
             ),
           ),
