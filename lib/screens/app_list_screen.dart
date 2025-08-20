@@ -1,0 +1,1018 @@
+import 'package:flutter/material.dart';
+import '../services/app_service.dart';
+import '../models/app_info.dart';
+
+class AppListScreen extends StatefulWidget {
+  const AppListScreen({super.key});
+
+  @override
+  State<AppListScreen> createState() => _AppListScreenState();
+}
+
+class _AppListScreenState extends State<AppListScreen> {
+  List<AppInfo> installedApps = [];
+  Set<String> selectedApps = {};
+  bool isLoading = true;
+  bool isRefreshing = false;
+  String searchQuery = '';
+  List<Map<String, dynamic>> cloneSuggestions = [];
+  bool showSuggestions = false;
+  
+  // Optimized pagination
+  static const int _pageSize = 30;
+  static const int _preloadSize = 50;
+  int _currentPage = 0;
+  bool _hasMoreApps = true;
+  bool _isLoadingMore = false;
+  bool _isPreloading = false;
+  Timer? _searchDebouncer;
+  Timer? _preloadTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInstalledApps();
+    _loadCloneSuggestions();
+  }
+
+  @override
+  void dispose() {
+    _searchDebouncer?.cancel();
+    _preloadTimer?.cancel();
+    super.dispose();
+  }
+  
+  /// Debounced search to improve performance
+  void _onSearchChanged(String query) {
+    _searchDebouncer?.cancel();
+    _searchDebouncer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        setState(() {
+          searchQuery = query;
+        });
+      }
+    });
+  }
+
+  Future<void> _loadInstalledApps({bool forceRefresh = false}) async {
+    if (!mounted) return;
+    
+    setState(() {
+      if (forceRefresh) {
+        isRefreshing = true;
+      } else {
+        isLoading = true;
+      }
+    });
+
+    try {
+      // Load first batch with optimized settings
+      final apps = await AppService.getInstalledApps(
+        forceRefresh: forceRefresh,
+        useCache: !forceRefresh,
+        maxResults: _pageSize,
+        includeIcons: true,
+        optimizeForSpeed: true,
+      ).timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          print('⚠️ App loading timeout, using cached data');
+          return AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
+        },
+      );
+      
+      if (mounted) {
+        setState(() {
+          installedApps = apps;
+          _currentPage = 0;
+          _hasMoreApps = apps.length >= _pageSize;
+          isLoading = false;
+          isRefreshing = false;
+        });
+        
+        print('✅ Loaded ${apps.length} apps successfully');
+        
+        // Start preloading more apps in background
+        _startPreloading();
+      }
+    } catch (e) {
+      print('❌ Error loading apps: $e');
+      if (mounted) {
+        setState(() {
+          // Use cached apps as fallback
+          installedApps = AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
+          isLoading = false;
+          isRefreshing = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load apps. Using cached data.'),
+            backgroundColor: Colors.orange,
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: () => _loadInstalledApps(forceRefresh: true),
+            ),
+          ),
+        );
+      }
+    }
+  }
+  
+  /// Start preloading apps in background
+  void _startPreloading() {
+    _preloadTimer?.cancel();
+    _preloadTimer = Timer(const Duration(milliseconds: 500), () {
+      _preloadMoreApps();
+    });
+  }
+  
+  /// Preload more apps in background
+  Future<void> _preloadMoreApps() async {
+    if (_isPreloading || !_hasMoreApps) return;
+    
+    setState(() {
+      _isPreloading = true;
+    });
+    
+    try {
+      final moreApps = await AppService.loadMoreApps(
+        offset: installedApps.length,
+        limit: _preloadSize,
+        includeIcons: false, // Load icons later for better performance
+      );
+      
+      if (mounted && moreApps.isNotEmpty) {
+        setState(() {
+          installedApps.addAll(moreApps);
+          _hasMoreApps = moreApps.length >= _preloadSize;
+          _isPreloading = false;
+        });
+        
+        print('🔄 Preloaded ${moreApps.length} more apps');
+      } else {
+        setState(() {
+          _hasMoreApps = false;
+          _isPreloading = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Error preloading apps: $e');
+      setState(() {
+        _isPreloading = false;
+      });
+    }
+  }
+  
+  /// Load more apps when user scrolls
+  Future<void> _loadMoreApps() async {
+    if (_isLoadingMore || !_hasMoreApps) return;
+    
+    setState(() {
+      _isLoadingMore = true;
+    });
+    
+    try {
+      final moreApps = await AppService.loadMoreApps(
+        offset: installedApps.length,
+        limit: _pageSize,
+        includeIcons: true,
+      );
+      
+      if (mounted) {
+        setState(() {
+          installedApps.addAll(moreApps);
+          _currentPage++;
+          _hasMoreApps = moreApps.length >= _pageSize;
+          _isLoadingMore = false;
+        });
+        
+        print('📄 Loaded ${moreApps.length} more apps (page ${_currentPage})');
+      }
+    } catch (e) {
+      print('❌ Error loading more apps: $e');
+      setState(() {
+        _isLoadingMore = false;
+      });
+    }
+  }
+
+  Future<void> _loadCloneSuggestions() async {
+    try {
+      final suggestions = await AppService.analyzeCloneSuggestions();
+      setState(() {
+        cloneSuggestions = suggestions;
+      });
+    } catch (e) {
+      print('Error loading clone suggestions: $e');
+    }
+  }
+
+  List<AppInfo> get filteredApps {
+    if (searchQuery.isEmpty) {
+      return installedApps;
+    }
+    return installedApps.where((app) =>
+        app.appName.toLowerCase().contains(searchQuery.toLowerCase())).toList();
+  }
+
+  void _toggleAppSelection(String packageName) {
+    setState(() {
+      if (selectedApps.contains(packageName)) {
+        selectedApps.remove(packageName);
+      } else {
+        selectedApps.add(packageName);
+      }
+    });
+  }
+
+  Future<void> _cloneSelectedApps() async {
+    if (selectedApps.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select at least one app to clone'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Show custom name dialog for single app cloning
+    String? customName;
+    if (selectedApps.length == 1) {
+      final controller = TextEditingController();
+      final shouldCustomize = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text('Customize Clone', style: TextStyle(color: Colors.orange)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Enter a custom name for the cloned app (optional):',
+                style: TextStyle(color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'e.g., Bitcoin Wallet Personal',
+                  hintStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.orange),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.orange),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Skip', style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Clone', style: TextStyle(color: Colors.orange)),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldCustomize == true && controller.text.trim().isNotEmpty) {
+        customName = controller.text.trim();
+      }
+    }
+
+    // Show optimized cloning dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text('Fast Cloning', style: TextStyle(color: Colors.orange)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Colors.orange),
+            const SizedBox(height: 16),
+            Text(
+              'Cloning ${selectedApps.length} app(s)...\nOptimized for speed!',
+              style: const TextStyle(color: Colors.white),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      int successCount = 0;
+      int failCount = 0;
+
+      // Optimized parallel cloning for better performance
+      final futures = selectedApps.map((packageName) async {
+        try {
+          final success = await AppService.cloneApp(packageName, customName: customName);
+          if (success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (e) {
+          failCount++;
+          print('Error cloning $packageName: $e');
+        }
+      });
+
+      await Future.wait(futures);
+
+      // Small delay for UI feedback
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: Text(
+              successCount > 0 ? 'Cloning Complete!' : 'Cloning Failed',
+              style: TextStyle(color: successCount > 0 ? Colors.green : Colors.red),
+            ),
+            content: Text(
+              successCount > 0
+                ? '$successCount app(s) successfully cloned${failCount > 0 ? ', $failCount failed' : ''}!\n\nYou can now use multiple instances with complete data isolation.'
+                : 'Failed to clone apps. Please try again.',
+              style: const TextStyle(color: Colors.white),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).pop(); // Go back to home screen
+                },
+                child: const Text('OK', style: TextStyle(color: Colors.orange)),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error cloning apps: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.orange),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Add to MultiSpace',
+          style: TextStyle(
+            color: Colors.orange,
+            fontSize: 20,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        backgroundColor: Colors.black,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(120),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: TextField(
+                  onChanged: _onSearchChanged,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search apps...',
+                    hintStyle: const TextStyle(color: Colors.grey),
+                    prefixIcon: const Icon(Icons.search, color: Colors.orange),
+                    filled: true,
+                    fillColor: Colors.grey[800],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              // Filter Tabs
+              Container(
+                height: 40,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            showSuggestions = true;
+                          });
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: showSuggestions ? Colors.orange : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Suggestions (${cloneSuggestions.length})',
+                              style: TextStyle(
+                                color: showSuggestions ? Colors.white : Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            showSuggestions = false;
+                          });
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: !showSuggestions ? Colors.orange : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'All Apps (${installedApps.length})',
+                              style: TextStyle(
+                                color: !showSuggestions ? Colors.white : Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+      body: Column(
+        children: [
+          if (selectedApps.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: Colors.grey[800],
+              child: Text(
+                '${selectedApps.length} app(s) selected',
+                style: const TextStyle(
+                  color: Colors.orange,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          Expanded(
+            child: isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.orange),
+                  )
+                : showSuggestions
+                    ? _buildSuggestionsView()
+                    : filteredApps.isEmpty
+                        ? Center(
+                            child: Text(
+                              searchQuery.isEmpty ? 'No apps found' : 'No apps match your search',
+                              style: const TextStyle(color: Colors.grey, fontSize: 16),
+                            ),
+                          )
+                        : NotificationListener<ScrollNotification>(
+                            onNotification: (ScrollNotification scrollInfo) {
+                              // Load more when user scrolls near the bottom
+                              if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+                                _loadMoreApps();
+                              }
+                              return false;
+                            },
+                            child: GridView.builder(
+                              padding: const EdgeInsets.all(16),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 16,
+                                mainAxisSpacing: 16,
+                                childAspectRatio: 0.8,
+                              ),
+                              itemCount: filteredApps.length + (_isLoadingMore ? 3 : 0),
+                              itemBuilder: (context, index) {
+                                // Show loading indicators at the end
+                                if (index >= filteredApps.length) {
+                                  return const Card(
+                                    color: Color(0xFF2A2A2A),
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        color: Colors.orange,
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                         );
+                       },
+                     );
+                                }
+                          final app = filteredApps[index];
+                          final isSelected = selectedApps.contains(app.packageName);
+                          
+                          return GestureDetector(
+                            onTap: () => _toggleAppSelection(app.packageName),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: isSelected
+                                    ? Border.all(color: Colors.orange, width: 2)
+                                    : Border.all(color: Colors.transparent, width: 2),
+                                color: isSelected 
+                                    ? Colors.orange.withOpacity(0.1)
+                                    : Colors.transparent,
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Stack(
+                                    children: [
+                                      Container(
+                                        width: 60,
+                                        height: 60,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(12),
+                                          color: app.color,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withOpacity(0.3),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                        child: app.icon != null
+                                            ? ClipRRect(
+                                                borderRadius: BorderRadius.circular(12),
+                                                child: Image.memory(
+                                                  app.icon!,
+                                                  width: 60,
+                                                  height: 60,
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.android,
+                                                color: Colors.white,
+                                                size: 30,
+                                              ),
+                                      ),
+                                      if (isSelected)
+                                        Positioned(
+                                          top: -2,
+                                          right: -2,
+                                          child: Container(
+                                            width: 20,
+                                            height: 20,
+                                            decoration: const BoxDecoration(
+                                              color: Colors.orange,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                              size: 14,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    app.appName,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  // Removed "Already cloned" restriction - allow multiple clones
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+          if (selectedApps.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[900],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: _cloneSelectedApps,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  'CLONE ${selectedApps.length} APP${selectedApps.length > 1 ? 'S' : ''}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestionsView() {
+    if (cloneSuggestions.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lightbulb_outline, size: 80, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'No clone suggestions available',
+              style: TextStyle(color: Colors.grey, fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Install more apps to get personalized suggestions',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: cloneSuggestions.length,
+      itemBuilder: (context, index) {
+        final suggestion = cloneSuggestions[index];
+        final packageName = suggestion['packageName'] ?? '';
+        final appName = suggestion['appName'] ?? 'Unknown App';
+        final category = suggestion['category'] ?? 'Unknown';
+        final confidence = (suggestion['confidence'] ?? 0.0) as double;
+        final priority = suggestion['priority'] ?? 'medium';
+        final reasons = List<String>.from(suggestion['reasons'] ?? []);
+        final benefits = List<String>.from(suggestion['benefits'] ?? []);
+        
+        // Find the app info for icon
+        final appInfo = installedApps.firstWhere(
+          (app) => app.packageName == packageName,
+          orElse: () => AppInfo(
+            packageName: packageName,
+            appName: appName,
+            icon: null,
+            color: Colors.grey,
+          ),
+        );
+        
+        final isSelected = selectedApps.contains(packageName);
+        
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[850],
+            borderRadius: BorderRadius.circular(12),
+            border: isSelected
+                ? Border.all(color: Colors.orange, width: 2)
+                : null,
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.all(16),
+            leading: Stack(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: appInfo.color,
+                  ),
+                  child: appInfo.icon != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.memory(
+                            appInfo.icon!,
+                            width: 50,
+                            height: 50,
+                            fit: BoxFit.cover,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.android,
+                          color: Colors.white,
+                          size: 25,
+                        ),
+                ),
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: _getPriorityColor(priority),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      _getPriorityIcon(priority),
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    appName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    category,
+                    style: const TextStyle(
+                      color: Colors.orange,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                // Confidence bar
+                Row(
+                  children: [
+                    const Text(
+                      'Confidence: ',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    Expanded(
+                      child: LinearProgressIndicator(
+                        value: confidence,
+                        backgroundColor: Colors.grey[700],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          confidence > 0.7 ? Colors.green : 
+                          confidence > 0.4 ? Colors.orange : Colors.red,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(confidence * 100).toInt()}%',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Reasons
+                if (reasons.isNotEmpty)
+                  Text(
+                    'Why: ${reasons.take(2).join(', ')}${reasons.length > 2 ? '...' : ''}',
+                    style: const TextStyle(color: Colors.grey, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                // Benefits
+                if (benefits.isNotEmpty)
+                  Text(
+                    'Benefits: ${benefits.take(2).join(', ')}${benefits.length > 2 ? '...' : ''}',
+                    style: const TextStyle(color: Colors.green, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.info_outline, color: Colors.orange),
+                  onPressed: () => _showSuggestionDetails(suggestion),
+                ),
+                Checkbox(
+                  value: isSelected,
+                  onChanged: (value) => _toggleAppSelection(packageName),
+                  activeColor: Colors.orange,
+                ),
+              ],
+            ),
+            onTap: () => _toggleAppSelection(packageName),
+          ),
+        );
+      },
+    );
+  }
+
+  Color _getPriorityColor(String priority) {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return Colors.red;
+      case 'medium':
+        return Colors.orange;
+      case 'low':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getPriorityIcon(String priority) {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return Icons.priority_high;
+      case 'medium':
+        return Icons.remove;
+      case 'low':
+        return Icons.low_priority;
+      default:
+        return Icons.help;
+    }
+  }
+
+  void _showSuggestionDetails(Map<String, dynamic> suggestion) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          suggestion['appName'] ?? 'App Details',
+          style: const TextStyle(color: Colors.orange),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow('Category', suggestion['category'] ?? 'Unknown'),
+              _buildDetailRow('Priority', suggestion['priority'] ?? 'Medium'),
+              _buildDetailRow('Confidence', '${((suggestion['confidence'] ?? 0.0) * 100).toInt()}%'),
+              _buildDetailRow('Difficulty', suggestion['difficulty'] ?? 'Unknown'),
+              const SizedBox(height: 16),
+              const Text(
+                'Reasons for Suggestion:',
+                style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ...List<String>.from(suggestion['reasons'] ?? []).map(
+                (reason) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(color: Colors.white)),
+                      Expanded(
+                        child: Text(
+                          reason,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Benefits:',
+                style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ...List<String>.from(suggestion['benefits'] ?? []).map(
+                (benefit) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(color: Colors.green)),
+                      Expanded(
+                        child: Text(
+                          benefit,
+                          style: const TextStyle(color: Colors.green),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (List<String>.from(suggestion['risks'] ?? []).isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Potential Risks:',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                ...List<String>.from(suggestion['risks'] ?? []).map(
+                  (risk) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• ', style: TextStyle(color: Colors.red)),
+                        Expanded(
+                          child: Text(
+                            risk,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Colors.orange)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          Text(
+            value,
+            style: const TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
