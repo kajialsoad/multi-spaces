@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:isolate';
@@ -134,10 +135,10 @@ class AppService {
             'excludeSystemApps': excludeSystemApps,
             'includeIcons': includeIcons && !backgroundLoad, // Skip icons for background loads
             'optimizeForSpeed': optimizeForSpeed || backgroundLoad,
-            'maxResults': maxResults ?? (backgroundLoad ? 50 : 150),
+            'maxResults': maxResults ?? (backgroundLoad ? 100 : 500), // Increased limits
             'offset': offset,
           },
-        ).timeout(const Duration(seconds: 10));
+        ).timeout(const Duration(seconds: 15)); // Longer timeout
         print('✅ Direct method channel call succeeded. Result length: ${result?.length ?? 'null'}');
       } catch (directError) {
         print('❌ Direct method channel failed: $directError');
@@ -151,7 +152,7 @@ class AppService {
             'excludeSystemApps': excludeSystemApps,
             'includeIcons': includeIcons && !backgroundLoad, // Skip icons for background loads
             'optimizeForSpeed': optimizeForSpeed || backgroundLoad,
-            'maxResults': maxResults ?? (backgroundLoad ? 50 : 150),
+            'maxResults': maxResults ?? (backgroundLoad ? 100 : 500), // Increased limits
             'offset': offset,
           },
           timeout, // Use dynamic timeout based on load type
@@ -179,30 +180,26 @@ class AppService {
       print('❌ ERROR getting apps via method channel: $e');
       print('❌ Error type: ${e.runtimeType}');
       print('❌ Stack trace: ${StackTrace.current}');
-      
+
       // Return cached data as fallback if available
       if (useCache && _cachedApps != null && _cachedApps!.isNotEmpty) {
         print('⚠️ Returning cached apps as fallback (${_cachedApps!.length} apps)');
         final result = _cachedApps!.skip(offset);
         return maxResults != null ? result.take(maxResults).toList() : result.toList();
       }
-      
+
       // For background loads, return empty list instead of throwing
       if (backgroundLoad) {
         print('⚠️ Background load failed, returning empty list');
         return [];
       }
+
+      // Throw the error instead of falling back to sample apps
+      throw Exception('Failed to get installed apps: $e');
     }
 
-    // Fast fallback: Return optimized sample apps for demonstration
-    if (_cachedApps == null) {
-      final sampleApps = _getSampleApps();
-      _cachedApps = sampleApps;
-      _lastCacheTime = DateTime.now();
-    }
-    
-    final result = _cachedApps!.skip(offset);
-    return maxResults != null ? result.take(maxResults).toList() : result.toList();
+    // If we reach here, method channel returned null/empty - throw error
+    throw Exception('Method channel returned null or empty result');
   }
 
   /// Sync fallback processing when background service fails
@@ -398,19 +395,30 @@ class AppService {
     }
 
     try {
-      final Uint8List? iconData = await _invokeOptimized<Uint8List>('getAppIcon', {
+      // Android returns base64 string, so we need to get it as String first
+      final String? base64IconData = await _invokeOptimized<String>('getAppIcon', {
         'packageName': packageName,
         'compressed': true, // Request compressed icons for better performance
         'size': 64, // Standard icon size
         'quality': 80, // Balanced quality/size ratio
       }, const Duration(seconds: 2)); // Add timeout
 
-      // Cache the icon using memory manager
-      if (iconData != null) {
-        MemoryManager.instance.cacheIcon(packageName, iconData);
+      if (base64IconData != null && base64IconData.isNotEmpty) {
+        try {
+          // Convert base64 string to Uint8List
+          final iconData = base64Decode(base64IconData);
+
+          // Cache the icon using memory manager
+          MemoryManager.instance.cacheIcon(packageName, iconData);
+
+          return iconData;
+        } catch (e) {
+          print('Error decoding base64 icon for $packageName: $e');
+          return null;
+        }
       }
 
-      return iconData;
+      return null;
     } catch (e) {
       print('Error getting app icon: $e');
       return null;
