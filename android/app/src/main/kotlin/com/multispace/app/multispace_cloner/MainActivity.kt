@@ -132,7 +132,7 @@ class MainActivity: FlutterActivity() {
                     val excludeSystemApps = call.argument<Boolean>("excludeSystemApps") ?: true
                     val includeIcons = call.argument<Boolean>("includeIcons") ?: true
                     val optimizeForSpeed = call.argument<Boolean>("optimizeForSpeed") ?: false
-                    val maxResults = call.argument<Int>("maxResults") ?: 200
+                    val maxResults = call.argument<Int>("maxResults") ?: 1000 // Increased default limit
                     getInstalledApps(result, excludeSystemApps, includeIcons, optimizeForSpeed, maxResults)
                 }
                 "getAppIcon" -> {
@@ -314,7 +314,7 @@ class MainActivity: FlutterActivity() {
         excludeSystemApps: Boolean = true,
         includeIcons: Boolean = true,
         optimizeForSpeed: Boolean = false,
-        maxResults: Int = 200
+        maxResults: Int = 1000 // Increased default limit
     ) {
         Log.d(TAG, "getInstalledApps called with excludeSystemApps=$excludeSystemApps, includeIcons=$includeIcons, optimizeForSpeed=$optimizeForSpeed, maxResults=$maxResults")
         
@@ -344,22 +344,18 @@ class MainActivity: FlutterActivity() {
                     true // Not needed for older versions
                 }
                 Log.d(TAG, "QUERY_ALL_PACKAGES permission granted: $hasQueryPermission")
-                
-                // Request permission if not granted on Android 11+
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && !hasQueryPermission) {
-                    Log.d(TAG, "QUERY_ALL_PACKAGES permission not granted, requesting permission")
+
+                // Try to get packages even without QUERY_ALL_PACKAGES permission
+                // Some apps might still be visible
+                val packages = try {
+                    packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to get installed packages: ${e.message}")
                     mainHandler.post {
-                        pendingPermissionResult = result
-                        ActivityCompat.requestPermissions(
-                            this@MainActivity,
-                            arrayOf(android.Manifest.permission.QUERY_ALL_PACKAGES),
-                            PERMISSION_REQUEST_CODE
-                        )
+                        result.error("PERMISSION_ERROR", "Failed to access installed packages. Error: ${e.message}", null)
                     }
                     return@execute
                 }
-                
-                val packages = packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
                 Log.d(TAG, "Found ${packages.size} total packages from PackageManager")
                 
                 val appsList = mutableListOf<Map<String, Any?>>()
@@ -373,8 +369,9 @@ class MainActivity: FlutterActivity() {
 
                 for (packageInfo in packages) {
                     processedApps++
-                    if (optimizeForSpeed && count >= maxResults) {
-                        Log.d(TAG, "Reached maxResults limit ($maxResults) in optimized mode")
+                    // Apply maxResults limit regardless of optimizeForSpeed
+                    if (count >= maxResults) {
+                        Log.d(TAG, "Reached maxResults limit ($maxResults)")
                         break
                     }
 

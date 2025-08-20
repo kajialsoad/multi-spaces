@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
@@ -23,10 +24,26 @@ class AppInfo {
   });
 
   factory AppInfo.fromMap(Map<String, dynamic> map) {
+    // Convert base64 icon string to Uint8List if needed
+    Uint8List? iconData;
+    if (map['icon'] != null) {
+      if (map['icon'] is String) {
+        try {
+          // Decode base64 string to Uint8List
+          iconData = base64Decode(map['icon']);
+        } catch (e) {
+          print('Error decoding icon for ${map['packageName']}: $e');
+          iconData = null;
+        }
+      } else if (map['icon'] is Uint8List) {
+        iconData = map['icon'];
+      }
+    }
+
     return AppInfo(
       appName: map['appName'] ?? 'Unknown App',
       packageName: map['packageName'] ?? '',
-      icon: map['icon'],
+      icon: iconData,
       isSystemApp: map['isSystemApp'] ?? false,
       isCloned: map['isCloned'] ?? false,
       color: _getColorFromPackage(map['packageName'] ?? ''),
