@@ -8,16 +8,51 @@ class PermissionService {
   
   /// Check if all required permissions are granted
   static Future<bool> hasAllRequiredPermissions() async {
-    // On web, permissions are not applicable; assume granted
     if (kIsWeb) return true;
-    // For demo purposes, always return true on other platforms
+    
+    // Check QUERY_ALL_PACKAGES permission first
+    final systemPermissions = await checkSystemLevelPermissions();
+    if (!(systemPermissions['android.permission.QUERY_ALL_PACKAGES'] ?? false)) {
+      print('QUERY_ALL_PACKAGES permission missing');
+      return false;
+    }
+    
+    // Check other required permissions
+    final permissions = await _getRequiredPermissions();
+    for (Permission permission in permissions) {
+      final status = await permission.status;
+      if (!status.isGranted) {
+        return false;
+      }
+    }
+    
     return true;
   }
   
   /// Request all required permissions
   static Future<bool> requestAllPermissions() async {
     if (kIsWeb) return true;
-    // For demo purposes, always return true
+    
+    // Check if we have QUERY_ALL_PACKAGES permission
+    final hasQueryPermission = await checkSystemLevelPermissions();
+    if (!(hasQueryPermission['android.permission.QUERY_ALL_PACKAGES'] ?? false)) {
+      print('QUERY_ALL_PACKAGES permission not granted');
+      return false;
+    }
+    
+    // Request other required permissions
+    final permissions = await _getRequiredPermissions();
+    for (Permission permission in permissions) {
+      final status = await permission.status;
+      if (!status.isGranted) {
+        final result = await permission.request();
+        if (!result.isGranted) {
+          print('Permission denied: $permission');
+          return false;
+        }
+      }
+    }
+    
     return true;
   }
   
@@ -27,10 +62,8 @@ class PermissionService {
     return [
       Permission.storage,
       Permission.manageExternalStorage,
-      Permission.systemAlertWindow,
       Permission.accessNotificationPolicy,
       Permission.requestInstallPackages,
-      Permission.ignoreBatteryOptimizations,
     ];
   }
 
@@ -150,8 +183,8 @@ class PermissionService {
         content: const Text(
           'MultiSpace needs several permissions to clone apps and manage their data securely:\n\n'
           '• Storage access - To create isolated app data\n'
-          '• System overlay - To manage cloned apps\n'
-          '• Notification access - For app management\n\n'
+          '• Notification access - For app management\n'
+          '• Install packages - To install cloned apps\n\n'
           'These permissions ensure your cloned apps work properly with separate data.',
           style: TextStyle(color: Colors.white),
         ),
@@ -216,14 +249,10 @@ class PermissionService {
         return 'Storage';
       case Permission.manageExternalStorage:
         return 'Manage External Storage';
-      case Permission.systemAlertWindow:
-        return 'System Overlay';
       case Permission.accessNotificationPolicy:
         return 'Notification Access';
       case Permission.requestInstallPackages:
         return 'Install Packages';
-      case Permission.ignoreBatteryOptimizations:
-        return 'Battery Optimization';
       default:
         return 'Unknown';
     }
@@ -236,16 +265,10 @@ class PermissionService {
         return 'create and manage isolated app data directories';
       case Permission.manageExternalStorage:
         return 'access and manage app files for cloning';
-      case Permission.systemAlertWindow:
-        return 'display cloned apps over other apps';
       case Permission.accessNotificationPolicy:
         return 'manage notifications for cloned apps';
       case Permission.requestInstallPackages:
         return 'install cloned app packages';
-      case Permission.ignoreBatteryOptimizations:
-        return 'run cloned apps without battery restrictions';
-      case Permission.storage:
-        return 'provide advanced app interaction features';
       case Permission.notification:
         return 'manage app notifications and alerts';
       default:

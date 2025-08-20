@@ -35,6 +35,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import android.util.Log
+import android.Manifest
+import android.content.pm.PackageManager.PERMISSION_GRANTED
+import androidx.core.app.ActivityCompat
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "multispace/apps"
@@ -52,10 +55,38 @@ class MainActivity: FlutterActivity() {
     private var lastCacheUpdate = 0L
     private val cacheTimeout = 5 * 60 * 1000L // 5 minutes
     
+    // Permission request handling
+    private var pendingPermissionResult: MethodChannel.Result? = null
+    
     companion object {
         private const val TAG = "MainActivity"
         private const val MAX_CACHE_SIZE = 500
         private const val ICON_CACHE_SIZE = 200
+        private const val PERMISSION_REQUEST_CODE = 1001
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            val result = pendingPermissionResult
+            pendingPermissionResult = null
+            
+            if (result != null) {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Log.d(TAG, "QUERY_ALL_PACKAGES permission granted, retrying getInstalledApps")
+                    // Retry getting installed apps with default parameters
+                    getInstalledApps(result, true, true, false, 200)
+                } else {
+                    Log.w(TAG, "QUERY_ALL_PACKAGES permission denied")
+                    result.error("PERMISSION_DENIED", "QUERY_ALL_PACKAGES permission is required to fetch installed apps", null)
+                }
+            }
+        }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -73,6 +104,23 @@ class MainActivity: FlutterActivity() {
         // Initialize performance channel
         performanceChannel = PerformanceChannel(this)
         performanceChannel.initialize(flutterEngine)
+        
+        // Initialize system permission channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "multispace_cloner/system").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "checkSystemPermission" -> {
+                    val permission = call.argument<String>("permission")
+                    if (permission != null) {
+                        checkSystemPermission(permission, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Permission is required", null)
+                    }
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -268,48 +316,105 @@ class MainActivity: FlutterActivity() {
         optimizeForSpeed: Boolean = false,
         maxResults: Int = 200
     ) {
+        Log.d(TAG, "getInstalledApps called with excludeSystemApps=$excludeSystemApps, includeIcons=$includeIcons, optimizeForSpeed=$optimizeForSpeed, maxResults=$maxResults")
+        
         val cacheKey = "apps_${excludeSystemApps}_${includeIcons}_${optimizeForSpeed}_$maxResults"
         val currentTime = System.currentTimeMillis()
         
         // Check cache first
         if (currentTime - lastCacheUpdate < cacheTimeout && appCache.containsKey(cacheKey)) {
-            Log.d(TAG, "Returning cached apps data")
-            result.success(appCache[cacheKey])
+            val cachedData = appCache[cacheKey]
+            Log.d(TAG, "Returning cached apps data with ${(cachedData as? List<*>)?.size ?: 0} apps")
+            result.success(cachedData)
             return
         }
+        
+        Log.d(TAG, "Cache miss or expired, fetching fresh app data")
         
         // Move heavy operation to background thread with optimization
         backgroundExecutor.execute {
             try {
+                Log.d(TAG, "Starting background app fetching process")
                 val packageManager = packageManager
+                
+                // Check QUERY_ALL_PACKAGES permission
+                val hasQueryPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    checkSelfPermission(android.Manifest.permission.QUERY_ALL_PACKAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                } else {
+                    true // Not needed for older versions
+                }
+                Log.d(TAG, "QUERY_ALL_PACKAGES permission granted: $hasQueryPermission")
+                
+                // Request permission if not granted on Android 11+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && !hasQueryPermission) {
+                    Log.d(TAG, "QUERY_ALL_PACKAGES permission not granted, requesting permission")
+                    mainHandler.post {
+                        pendingPermissionResult = result
+                        ActivityCompat.requestPermissions(
+                            this@MainActivity,
+                            arrayOf(android.Manifest.permission.QUERY_ALL_PACKAGES),
+                            PERMISSION_REQUEST_CODE
+                        )
+                    }
+                    return@execute
+                }
+                
                 val packages = packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
+                Log.d(TAG, "Found ${packages.size} total packages from PackageManager")
+                
                 val appsList = mutableListOf<Map<String, Any?>>()
                 var count = 0
+                var systemAppsFiltered = 0
+                var processedApps = 0
                 
                 // Process apps in batches for better performance
                 val batchSize = if (optimizeForSpeed) 50 else 100
                 var processed = 0
 
                 for (packageInfo in packages) {
-                    if (optimizeForSpeed && count >= maxResults) break
+                    processedApps++
+                    if (optimizeForSpeed && count >= maxResults) {
+                        Log.d(TAG, "Reached maxResults limit ($maxResults) in optimized mode")
+                        break
+                    }
 
                     val appInfo = packageInfo.applicationInfo
-
-                    // Filter system apps if requested
-                    if (excludeSystemApps && (appInfo?.flags?.and(ApplicationInfo.FLAG_SYSTEM)) != 0 &&
-                        (appInfo?.flags?.and(ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0) {
+                    if (appInfo == null) {
+                        Log.w(TAG, "Skipping package with null applicationInfo: ${packageInfo.packageName}")
                         continue
                     }
 
-                    val appData = mutableMapOf<String, Any?>()
-                    val packageName = appInfo?.packageName ?: continue
+                    // Filter system apps if requested
+                    val isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    val isUpdatedSystemApp = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                    
+                    if (excludeSystemApps && isSystemApp && !isUpdatedSystemApp) {
+                        systemAppsFiltered++
+                        continue
+                    }
+                    
+                    Log.v(TAG, "Processing app: ${appInfo.packageName}, isSystem=$isSystemApp, isUpdated=$isUpdatedSystemApp")
 
-                    // Get app name with caching
-                    val appName = appInfo.let { packageManager.getApplicationLabel(it).toString() }
-                    appData["appName"] = appName
-                    appData["packageName"] = packageName
-                    appData["isSystemApp"] = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    appData["isCloned"] = false // Will be updated by Flutter service
+                    val appData = mutableMapOf<String, Any?>()
+                    val packageName = appInfo.packageName
+                    if (packageName.isNullOrEmpty()) {
+                        Log.w(TAG, "Skipping app with empty package name")
+                        continue
+                    }
+
+                    try {
+                        // Get app name with caching
+                        val appName = packageManager.getApplicationLabel(appInfo).toString()
+                        Log.v(TAG, "Adding app: $appName ($packageName)")
+                        
+                        appData["appName"] = appName
+                        appData["packageName"] = packageName
+                        appData["isSystemApp"] = isSystemApp
+                        appData["isCloned"] = false // Will be updated by Flutter service
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to get app name for $packageName: ${e.message}")
+                        continue
+                    }
 
                     // Optimized icon loading with cache
                     if (includeIcons && !optimizeForSpeed) {
@@ -320,11 +425,11 @@ class MainActivity: FlutterActivity() {
                             try {
                                 val icon = packageManager.getApplicationIcon(appInfo)
                                 val iconBytes = drawableToByteArray(icon)
-                                appData["icon"] = iconBytes
+                                appData["icon"] = android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT)
                                 
                                 // Cache icon with size limit
                                 if (iconCache.size < ICON_CACHE_SIZE) {
-                                    iconCache[iconCacheKey] = iconBytes
+                                    iconCache[iconCacheKey] = android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT)
                                 }
                             } catch (e: Exception) {
                                 Log.w(TAG, "Failed to load icon for $packageName: ${e.message}")
@@ -349,12 +454,20 @@ class MainActivity: FlutterActivity() {
                 if (appCache.size < MAX_CACHE_SIZE) {
                     appCache[cacheKey] = appsList
                     lastCacheUpdate = currentTime
+                    Log.d(TAG, "Cached ${appsList.size} apps with key: $cacheKey")
                 }
                 
-                Log.d(TAG, "Loaded ${appsList.size} apps in ${System.currentTimeMillis() - currentTime}ms")
+                val processingTime = System.currentTimeMillis() - currentTime
+                Log.d(TAG, "App fetching completed: processed=$processedApps, systemFiltered=$systemAppsFiltered, final=${appsList.size} apps in ${processingTime}ms")
+                
+                if (appsList.isEmpty()) {
+                    Log.w(TAG, "WARNING: No apps found! This might indicate a permission or filtering issue")
+                    Log.w(TAG, "Debug info - excludeSystemApps=$excludeSystemApps, hasQueryPermission=$hasQueryPermission")
+                }
 
                 // Return result on main thread
                 mainHandler.post {
+                    Log.d(TAG, "Returning ${appsList.size} apps to Flutter")
                     result.success(appsList)
                 }
             } catch (e: Exception) {
@@ -385,11 +498,11 @@ class MainActivity: FlutterActivity() {
                 
                 // Cache with size limit
                 if (iconCache.size < ICON_CACHE_SIZE) {
-                    iconCache[iconCacheKey] = iconBytes
+                    iconCache[iconCacheKey] = android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT)
                 }
                 
                 mainHandler.post {
-                    result.success(iconBytes)
+                    result.success(android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to get app icon for $packageName", e)
@@ -480,7 +593,7 @@ class MainActivity: FlutterActivity() {
                     result.error("CLONE_ERROR", "Failed to clone app: ${e.message}", null)
                 }
             }
-        }.start()
+        }
     }
 
     private fun cloneApp(packageName: String, result: MethodChannel.Result) {
@@ -1497,6 +1610,49 @@ class MainActivity: FlutterActivity() {
             }
         } catch (e: Exception) {
             result.error("ERROR", "Failed to get virtual space health report: ${e.message}", null)
+        }
+    }
+    
+    /**
+     * Check system-level permission status
+     */
+    private fun checkSystemPermission(permission: String, result: MethodChannel.Result) {
+        try {
+            when (permission) {
+                "android.permission.QUERY_ALL_PACKAGES" -> {
+                    // Check if QUERY_ALL_PACKAGES permission is granted
+                    val hasPermission = try {
+                        // Try to get all packages to test if permission is granted
+                        packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
+                        true
+                    } catch (e: SecurityException) {
+                        false
+                    }
+                    
+                    Log.d(TAG, "QUERY_ALL_PACKAGES permission check: $hasPermission")
+                    result.success(hasPermission)
+                }
+                "android.permission.WRITE_EXTERNAL_STORAGE" -> {
+                    val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PERMISSION_GRANTED
+                    result.success(hasPermission)
+                }
+                "android.permission.READ_EXTERNAL_STORAGE" -> {
+                    val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PERMISSION_GRANTED
+                    result.success(hasPermission)
+                }
+                "android.permission.SYSTEM_ALERT_WINDOW" -> {
+                    val hasPermission = android.provider.Settings.canDrawOverlays(this)
+                    result.success(hasPermission)
+                }
+                else -> {
+                    // For other permissions, use standard permission check
+                    val hasPermission = ContextCompat.checkSelfPermission(this, permission) == PERMISSION_GRANTED
+                    result.success(hasPermission)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check system permission: $permission", e)
+            result.error("ERROR", "Failed to check system permission: ${e.message}", null)
         }
     }
 }

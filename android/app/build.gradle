@@ -24,8 +24,8 @@ if (flutterVersionName == null) {
 }
 
 android {
-    namespace = "com.example.multispace_cloner"
-    compileSdk = 34
+    namespace = "com.multispace.app.multispace_cloner"
+    compileSdk = 35
     ndkVersion = "28.0.13004108"
 
     compileOptions {
@@ -39,9 +39,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.multispace_cloner"
+        applicationId = "com.multispace.app.multispace_cloner"
         minSdk = 21
-        targetSdk = 34
+        targetSdk = 35
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled = true

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'app_list_screen.dart';
 import 'cloned_apps_screen.dart';
@@ -15,9 +16,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  Map<String, dynamic>? memoryInfo;
-  Map<String, dynamic>? globalStats;
-  bool isLoadingSystemInfo = false;
+  // Removed system information variables
 
   late final List<Widget> _screens;
 
@@ -28,7 +27,6 @@ class _HomeScreenState extends State<HomeScreen> {
       const ClonedAppsScreen(),
       _buildSettingsScreen(),
     ];
-    _loadSystemInfo();
     // Preload apps in background for better performance
     _preloadAppsInBackground();
   }
@@ -40,73 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _loadSystemInfo() async {
-    if (!mounted) return;
-
-    // Set loading state without blocking UI
-    if (mounted) {
-      setState(() {
-        isLoadingSystemInfo = true;
-      });
-    }
-
-    try {
-      // Load memory info with optimized timeout
-      final memoryFuture = AppService.getMemoryInfo().timeout(
-        const Duration(seconds: 1),
-        onTimeout: () => _getFallbackMemoryInfo(),
-      );
-      
-      // Load global stats with optimized timeout
-      final statsFuture = AppService.getGlobalStatistics().timeout(
-        const Duration(seconds: 1),
-        onTimeout: () => _getFallbackGlobalStats(),
-      );
-      
-      final results = await Future.wait([
-        memoryFuture,
-        statsFuture,
-      ], eagerError: false);
-
-      if (mounted) {
-        setState(() {
-          memoryInfo = results[0] as Map<String, dynamic>? ?? _getFallbackMemoryInfo();
-          globalStats = results[1] as Map<String, dynamic>? ?? _getFallbackGlobalStats();
-          isLoadingSystemInfo = false;
-        });
-      }
-    } catch (e) {
-      print('❌ Error loading system info: $e');
-      if (mounted) {
-        setState(() {
-          isLoadingSystemInfo = false;
-          // Set optimized fallback data immediately
-          memoryInfo = _getFallbackMemoryInfo();
-          globalStats = _getFallbackGlobalStats();
-        });
-      }
-    }
-  }
-  
-  /// Get fallback memory info when loading fails
-  Map<String, dynamic> _getFallbackMemoryInfo() {
-    return {
-      'totalMemory': 4096,
-      'availableMemory': 2048,
-      'usedMemory': 2048,
-      'usagePercentage': 50.0,
-    };
-  }
-  
-  /// Get fallback global stats when loading fails
-  Map<String, dynamic> _getFallbackGlobalStats() {
-    return {
-      'totalClones': 0,
-      'activeClones': 0,
-      'totalStorage': 0,
-      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
-    };
-  }
+  // Removed system info and global stats loading methods
 
   @override
   Widget build(BuildContext context) {
@@ -274,16 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // System Information Card
-          _buildSystemInfoCard(),
-          const SizedBox(height: 16),
-          
-          // Memory Management Card
-          _buildMemoryManagementCard(),
-          const SizedBox(height: 16),
-          
-          // Global Statistics Card
-          _buildGlobalStatsCard(),
+          // Removed system info, memory management, and global stats cards
           const SizedBox(height: 16),
           
           // Settings Options
@@ -293,229 +216,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSystemInfoCard() {
-    return Card(
-      color: Colors.grey[850],
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.info_outline, color: Colors.orange),
-                const SizedBox(width: 8),
-                const Text(
-                  'System Information',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.orange),
-                  onPressed: _loadSystemInfo,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (isLoadingSystemInfo)
-              const Center(
-                child: CircularProgressIndicator(color: Colors.orange),
-              )
-            else if (memoryInfo != null) ...[
-              _buildInfoRow('Total Memory', '${memoryInfo!['totalMemory'] ?? 'Unknown'} MB'),
-              _buildInfoRow('Available Memory', '${memoryInfo!['availableMemory'] ?? 'Unknown'} MB'),
-              _buildInfoRow('Used Memory', '${memoryInfo!['usedMemory'] ?? 'Unknown'} MB'),
-              _buildInfoRow('Memory Usage', '${memoryInfo!['memoryUsagePercent'] ?? 'Unknown'}%'),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: (memoryInfo!['memoryUsagePercent'] ?? 0) / 100.0,
-                backgroundColor: Colors.grey[700],
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  (memoryInfo!['memoryUsagePercent'] ?? 0) > 80 ? Colors.red :
-                  (memoryInfo!['memoryUsagePercent'] ?? 0) > 60 ? Colors.orange : Colors.green,
-                ),
-              ),
-            ] else
-              const Text(
-                'Failed to load system information',
-                style: TextStyle(color: Colors.grey),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Removed system information card method
 
-  Widget _buildMemoryManagementCard() {
-    return Card(
-      color: Colors.grey[850],
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.memory, color: Colors.orange),
-                SizedBox(width: 8),
-                Text(
-                  'Memory Management',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _optimizeMemory,
-                    icon: const Icon(Icons.cleaning_services, color: Colors.white),
-                    label: const Text(
-                      'Optimize Memory',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _clearCache,
-                    icon: const Icon(Icons.clear_all, color: Colors.white),
-                    label: const Text(
-                      'Clear Cache',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[700],
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Removed memory management card method
 
-  Widget _buildGlobalStatsCard() {
-    return Card(
-      color: Colors.grey[850],
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.analytics, color: Colors.orange),
-                SizedBox(width: 8),
-                Text(
-                  'Global Statistics',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (globalStats != null) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Total Clones',
-                      '${globalStats!['totalClones'] ?? 0}',
-                      Icons.apps,
-                      Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Active Instances',
-                      '${globalStats!['activeInstances'] ?? 0}',
-                      Icons.play_circle,
-                      Colors.green,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Total Storage',
-                      '${globalStats!['totalStorageUsed'] ?? 0} MB',
-                      Icons.storage,
-                      Colors.purple,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Avg Performance',
-                      '${globalStats!['averagePerformance'] ?? 0}%',
-                      Icons.speed,
-                      Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-            ] else
-              const Text(
-                'No statistics available',
-                style: TextStyle(color: Colors.grey),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Removed global statistics card method
 
   Widget _buildSettingsOptions() {
     return Card(
       color: Colors.grey[850],
       child: Column(
         children: [
-          _buildSettingsTile(
-            icon: Icons.security,
-            title: 'Security Settings',
-            subtitle: 'Manage app security and permissions',
-            onTap: _showSecuritySettings,
-          ),
-          const Divider(color: Colors.grey),
-          _buildSettingsTile(
-            icon: Icons.tune,
-            title: 'Performance Settings',
-            subtitle: 'Optimize app performance and resources',
-            onTap: _showPerformanceSettings,
-          ),
-          const Divider(color: Colors.grey),
-          _buildSettingsTile(
-            icon: Icons.backup,
-            title: 'Backup & Restore',
-            subtitle: 'Manage app data backup and restore',
-            onTap: _showBackupSettings,
-          ),
-          const Divider(color: Colors.grey),
           _buildSettingsTile(
             icon: Icons.help_outline,
             title: 'Help & Support',
@@ -600,142 +311,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _optimizeMemory() async {
-    // Show loading indicator
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              ),
-              SizedBox(width: 12),
-              Text('Optimizing memory...'),
-            ],
-          ),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-    
-    try {
-      final result = await AppService.optimizeMemory().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw TimeoutException('Memory optimization timeout'),
-      );
-      
-      // Refresh system info after optimization
-      _loadSystemInfo();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Memory optimized! Freed ${result['memoryFreed'] ?? 'some'} MB'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ Memory optimization failed: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Memory optimization failed: ${e.toString().split(':').last}'),
-            backgroundColor: Colors.red,
-            action: SnackBarAction(
-              label: 'Retry',
-              onPressed: _optimizeMemory,
-            ),
-          ),
-        );
-      }
-    }
-  }
+  // Removed memory optimization methods
 
-  Future<void> _clearCache() async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: const Text(
-          'Clear Cache',
-          style: TextStyle(color: Colors.orange),
-        ),
-        content: const Text(
-          'This will clear all cached data for cloned apps. Continue?',
-          style: TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Implement cache clearing logic
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Cache cleared successfully'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            child: const Text('Clear', style: TextStyle(color: Colors.orange)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSecuritySettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SecuritySettingsScreen(),
-      ),
-    );
-  }
-
-  void _showPerformanceSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const PerformanceSettingsScreen(),
-      ),
-    );
-  }
-
-  void _showBackupSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: const Text(
-          'Backup & Restore',
-          style: TextStyle(color: Colors.orange),
-        ),
-        content: const Text(
-          'Backup and restore features will be available in future updates.',
-          style: TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Colors.orange)),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed complex settings methods (Security, Performance, Backup)
 
   void _showHelpSupport() {
     showDialog(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/app_service.dart';
 import '../models/app_info.dart';
@@ -11,13 +12,11 @@ class AppListScreen extends StatefulWidget {
 
 class _AppListScreenState extends State<AppListScreen> {
   List<AppInfo> installedApps = [];
-  Set<String> selectedApps = {};
+  List<Map<String, dynamic>> selectedApps = [];
   bool isLoading = true;
   bool isRefreshing = false;
   String searchQuery = '';
-  List<Map<String, dynamic>> cloneSuggestions = [];
-  bool showSuggestions = false;
-  
+
   // Optimized pagination
   static const int _pageSize = 30;
   static const int _preloadSize = 50;
@@ -32,7 +31,6 @@ class _AppListScreenState extends State<AppListScreen> {
   void initState() {
     super.initState();
     _loadInstalledApps();
-    _loadCloneSuggestions();
   }
 
   @override
@@ -41,7 +39,7 @@ class _AppListScreenState extends State<AppListScreen> {
     _preloadTimer?.cancel();
     super.dispose();
   }
-  
+
   /// Debounced search to improve performance
   void _onSearchChanged(String query) {
     _searchDebouncer?.cancel();
@@ -56,7 +54,7 @@ class _AppListScreenState extends State<AppListScreen> {
 
   Future<void> _loadInstalledApps({bool forceRefresh = false}) async {
     if (!mounted) return;
-    
+
     setState(() {
       if (forceRefresh) {
         isRefreshing = true;
@@ -80,7 +78,7 @@ class _AppListScreenState extends State<AppListScreen> {
           return AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
         },
       );
-      
+
       if (mounted) {
         setState(() {
           installedApps = apps;
@@ -89,9 +87,9 @@ class _AppListScreenState extends State<AppListScreen> {
           isLoading = false;
           isRefreshing = false;
         });
-        
+
         print('✅ Loaded ${apps.length} apps successfully');
-        
+
         // Start preloading more apps in background
         _startPreloading();
       }
@@ -100,11 +98,12 @@ class _AppListScreenState extends State<AppListScreen> {
       if (mounted) {
         setState(() {
           // Use cached apps as fallback
-          installedApps = AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
+          installedApps =
+              AppService.getCachedApps()?.take(_pageSize).toList() ?? [];
           isLoading = false;
           isRefreshing = false;
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load apps. Using cached data.'),
@@ -118,7 +117,7 @@ class _AppListScreenState extends State<AppListScreen> {
       }
     }
   }
-  
+
   /// Start preloading apps in background
   void _startPreloading() {
     _preloadTimer?.cancel();
@@ -126,29 +125,29 @@ class _AppListScreenState extends State<AppListScreen> {
       _preloadMoreApps();
     });
   }
-  
+
   /// Preload more apps in background
   Future<void> _preloadMoreApps() async {
     if (_isPreloading || !_hasMoreApps) return;
-    
+
     setState(() {
       _isPreloading = true;
     });
-    
+
     try {
       final moreApps = await AppService.loadMoreApps(
         offset: installedApps.length,
         limit: _preloadSize,
         includeIcons: false, // Load icons later for better performance
       );
-      
+
       if (mounted && moreApps.isNotEmpty) {
         setState(() {
           installedApps.addAll(moreApps);
           _hasMoreApps = moreApps.length >= _preloadSize;
           _isPreloading = false;
         });
-        
+
         print('🔄 Preloaded ${moreApps.length} more apps');
       } else {
         setState(() {
@@ -163,22 +162,22 @@ class _AppListScreenState extends State<AppListScreen> {
       });
     }
   }
-  
+
   /// Load more apps when user scrolls
   Future<void> _loadMoreApps() async {
     if (_isLoadingMore || !_hasMoreApps) return;
-    
+
     setState(() {
       _isLoadingMore = true;
     });
-    
+
     try {
       final moreApps = await AppService.loadMoreApps(
         offset: installedApps.length,
         limit: _pageSize,
         includeIcons: true,
       );
-      
+
       if (mounted) {
         setState(() {
           installedApps.addAll(moreApps);
@@ -186,7 +185,7 @@ class _AppListScreenState extends State<AppListScreen> {
           _hasMoreApps = moreApps.length >= _pageSize;
           _isLoadingMore = false;
         });
-        
+
         print('📄 Loaded ${moreApps.length} more apps (page ${_currentPage})');
       }
     } catch (e) {
@@ -197,31 +196,41 @@ class _AppListScreenState extends State<AppListScreen> {
     }
   }
 
-  Future<void> _loadCloneSuggestions() async {
-    try {
-      final suggestions = await AppService.analyzeCloneSuggestions();
-      setState(() {
-        cloneSuggestions = suggestions;
-      });
-    } catch (e) {
-      print('Error loading clone suggestions: $e');
-    }
-  }
+
 
   List<AppInfo> get filteredApps {
     if (searchQuery.isEmpty) {
       return installedApps;
     }
-    return installedApps.where((app) =>
-        app.appName.toLowerCase().contains(searchQuery.toLowerCase())).toList();
+    return installedApps
+        .where((app) =>
+            app.appName.toLowerCase().contains(searchQuery.toLowerCase()))
+        .toList();
   }
 
   void _toggleAppSelection(String packageName) {
     setState(() {
-      if (selectedApps.contains(packageName)) {
-        selectedApps.remove(packageName);
+      final existingIndex = selectedApps.indexWhere(
+          (app) => app['packageName'] == packageName);
+      
+      if (existingIndex != -1) {
+        selectedApps.removeAt(existingIndex);
       } else {
-        selectedApps.add(packageName);
+        final appInfo = installedApps.firstWhere(
+          (app) => app.packageName == packageName,
+          orElse: () => AppInfo(
+            packageName: packageName,
+            appName: 'Unknown App',
+            icon: null,
+            color: Colors.grey,
+          ),
+        );
+        
+        selectedApps.add({
+          'packageName': packageName,
+          'appName': appInfo.appName,
+          'customName': null,
+        });
       }
     });
   }
@@ -245,7 +254,8 @@ class _AppListScreenState extends State<AppListScreen> {
         context: context,
         builder: (context) => AlertDialog(
           backgroundColor: Colors.grey[900],
-          title: const Text('Customize Clone', style: TextStyle(color: Colors.orange)),
+          title: const Text('Customize Clone',
+              style: TextStyle(color: Colors.orange)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -277,7 +287,8 @@ class _AppListScreenState extends State<AppListScreen> {
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Clone', style: TextStyle(color: Colors.orange)),
+              child:
+                  const Text('Clone', style: TextStyle(color: Colors.orange)),
             ),
           ],
         ),
@@ -294,7 +305,8 @@ class _AppListScreenState extends State<AppListScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: const Text('Fast Cloning', style: TextStyle(color: Colors.orange)),
+        title:
+            const Text('Fast Cloning', style: TextStyle(color: Colors.orange)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -315,9 +327,11 @@ class _AppListScreenState extends State<AppListScreen> {
       int failCount = 0;
 
       // Optimized parallel cloning for better performance
-      final futures = selectedApps.map((packageName) async {
+      final futures = selectedApps.map((appData) async {
         try {
-          final success = await AppService.cloneApp(packageName, customName: customName);
+          final packageName = appData['packageName'] as String;
+          final success =
+              await AppService.cloneApp(packageName, customName: customName);
           if (success) {
             successCount++;
           } else {
@@ -325,7 +339,7 @@ class _AppListScreenState extends State<AppListScreen> {
           }
         } catch (e) {
           failCount++;
-          print('Error cloning $packageName: $e');
+          print('Error cloning ${appData['packageName']}: $e');
         }
       });
 
@@ -336,19 +350,20 @@ class _AppListScreenState extends State<AppListScreen> {
 
       if (mounted) {
         Navigator.of(context).pop(); // Close loading dialog
-        
+
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
             backgroundColor: Colors.grey[900],
             title: Text(
               successCount > 0 ? 'Cloning Complete!' : 'Cloning Failed',
-              style: TextStyle(color: successCount > 0 ? Colors.green : Colors.red),
+              style: TextStyle(
+                  color: successCount > 0 ? Colors.green : Colors.red),
             ),
             content: Text(
               successCount > 0
-                ? '$successCount app(s) successfully cloned${failCount > 0 ? ', $failCount failed' : ''}!\n\nYou can now use multiple instances with complete data isolation.'
-                : 'Failed to clone apps. Please try again.',
+                  ? '$successCount app(s) successfully cloned${failCount > 0 ? ', $failCount failed' : ''}!\n\nYou can now use multiple instances with complete data isolation.'
+                  : 'Failed to clone apps. Please try again.',
               style: const TextStyle(color: Colors.white),
             ),
             actions: [
@@ -416,61 +431,23 @@ class _AppListScreenState extends State<AppListScreen> {
                   ),
                 ),
               ),
-              // Filter Tabs
+              // App count display
               Container(
                 height: 40,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            showSuggestions = true;
-                          });
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: showSuggestions ? Colors.orange : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Suggestions (${cloneSuggestions.length})',
-                              style: TextStyle(
-                                color: showSuggestions ? Colors.white : Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'All Apps (${installedApps.length})',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            showSuggestions = false;
-                          });
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: !showSuggestions ? Colors.orange : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'All Apps (${installedApps.length})',
-                              style: TextStyle(
-                                color: !showSuggestions ? Colors.white : Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -496,152 +473,38 @@ class _AppListScreenState extends State<AppListScreen> {
               ),
             ),
           Expanded(
-            child: isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Colors.orange),
-                  )
-                : showSuggestions
-                    ? _buildSuggestionsView()
-                    : filteredApps.isEmpty
-                        ? Center(
-                            child: Text(
-                              searchQuery.isEmpty ? 'No apps found' : 'No apps match your search',
-                              style: const TextStyle(color: Colors.grey, fontSize: 16),
-                            ),
-                          )
-                        : NotificationListener<ScrollNotification>(
-                            onNotification: (ScrollNotification scrollInfo) {
-                              // Load more when user scrolls near the bottom
-                              if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
-                                _loadMoreApps();
-                              }
-                              return false;
-                            },
-                            child: GridView.builder(
-                              padding: const EdgeInsets.all(16),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 16,
-                                mainAxisSpacing: 16,
-                                childAspectRatio: 0.8,
-                              ),
-                              itemCount: filteredApps.length + (_isLoadingMore ? 3 : 0),
-                              itemBuilder: (context, index) {
-                                // Show loading indicators at the end
-                                if (index >= filteredApps.length) {
-                                  return const Card(
-                                    color: Color(0xFF2A2A2A),
-                                    child: Center(
-                                      child: CircularProgressIndicator(
-                                        color: Colors.orange,
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                         );
-                       },
-                     );
-                                }
-                          final app = filteredApps[index];
-                          final isSelected = selectedApps.contains(app.packageName);
-                          
-                          return GestureDetector(
-                            onTap: () => _toggleAppSelection(app.packageName),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                border: isSelected
-                                    ? Border.all(color: Colors.orange, width: 2)
-                                    : Border.all(color: Colors.transparent, width: 2),
-                                color: isSelected 
-                                    ? Colors.orange.withOpacity(0.1)
-                                    : Colors.transparent,
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Stack(
-                                    children: [
-                                      Container(
-                                        width: 60,
-                                        height: 60,
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(12),
-                                          color: app.color,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.3),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                        ),
-                                        child: app.icon != null
-                                            ? ClipRRect(
-                                                borderRadius: BorderRadius.circular(12),
-                                                child: Image.memory(
-                                                  app.icon!,
-                                                  width: 60,
-                                                  height: 60,
-                                                  fit: BoxFit.cover,
-                                                ),
-                                              )
-                                            : const Icon(
-                                                Icons.android,
-                                                color: Colors.white,
-                                                size: 30,
-                                              ),
-                                      ),
-                                      if (isSelected)
-                                        Positioned(
-                                          top: -2,
-                                          right: -2,
-                                          child: Container(
-                                            width: 20,
-                                            height: 20,
-                                            decoration: const BoxDecoration(
-                                              color: Colors.orange,
-                                              shape: BoxShape.circle,
-                                            ),
-                                            child: const Icon(
-                                              Icons.check,
-                                              color: Colors.white,
-                                              size: 14,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    app.appName,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  // Removed "Already cloned" restriction - allow multiple clones
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+            child: RefreshIndicator(
+              onRefresh: () => _loadInstalledApps(forceRefresh: true),
+              child: GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  childAspectRatio: 0.8,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: filteredApps.length,
+                itemBuilder: (context, index) {
+                  final app = filteredApps[index];
+                  final isSelected = selectedApps.any((selected) => 
+                      selected['packageName'] == app.packageName);
+                  
+                  return _buildAppItem(app, isSelected);
+                },
+              ),
+            ),
           ),
           if (selectedApps.isNotEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[900],
+              decoration: const BoxDecoration(
+                color: Color(0xFF212121),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Color(0x4D000000),
                     blurRadius: 8,
-                    offset: const Offset(0, -4),
+                    offset: Offset(0, -4),
                   ),
                 ],
               ),
@@ -669,332 +532,97 @@ class _AppListScreenState extends State<AppListScreen> {
     );
   }
 
-  Widget _buildSuggestionsView() {
-    if (cloneSuggestions.isEmpty) {
-      return const Center(
+  Widget _buildAppItem(AppInfo app, bool isSelected) {
+    return GestureDetector(
+      onTap: () => _toggleAppSelection(app.packageName),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: isSelected
+              ? Border.all(color: Colors.orange, width: 2)
+              : Border.all(color: Colors.transparent, width: 2),
+          color: isSelected
+              ? Colors.orange.withOpacity(0.1)
+              : Colors.transparent,
+        ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.lightbulb_outline, size: 80, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'No clone suggestions available',
-              style: TextStyle(color: Colors.grey, fontSize: 16),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Install more apps to get personalized suggestions',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: cloneSuggestions.length,
-      itemBuilder: (context, index) {
-        final suggestion = cloneSuggestions[index];
-        final packageName = suggestion['packageName'] ?? '';
-        final appName = suggestion['appName'] ?? 'Unknown App';
-        final category = suggestion['category'] ?? 'Unknown';
-        final confidence = (suggestion['confidence'] ?? 0.0) as double;
-        final priority = suggestion['priority'] ?? 'medium';
-        final reasons = List<String>.from(suggestion['reasons'] ?? []);
-        final benefits = List<String>.from(suggestion['benefits'] ?? []);
-        
-        // Find the app info for icon
-        final appInfo = installedApps.firstWhere(
-          (app) => app.packageName == packageName,
-          orElse: () => AppInfo(
-            packageName: packageName,
-            appName: appName,
-            icon: null,
-            color: Colors.grey,
-          ),
-        );
-        
-        final isSelected = selectedApps.contains(packageName);
-        
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey[850],
-            borderRadius: BorderRadius.circular(12),
-            border: isSelected
-                ? Border.all(color: Colors.orange, width: 2)
-                : null,
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(16),
-            leading: Stack(
+            Stack(
               children: [
                 Container(
-                  width: 50,
-                  height: 50,
+                  width: 60,
+                  height: 60,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: appInfo.color,
+                    borderRadius: BorderRadius.circular(12),
+                    color: app.color,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  child: appInfo.icon != null
+                  child: app.icon != null
                       ? ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                           child: Image.memory(
-                            appInfo.icon!,
-                            width: 50,
-                            height: 50,
+                            app.icon!,
+                            width: 60,
+                            height: 60,
                             fit: BoxFit.cover,
                           ),
                         )
                       : const Icon(
                           Icons.android,
                           color: Colors.white,
-                          size: 25,
+                          size: 30,
                         ),
                 ),
-                Positioned(
-                  top: -2,
-                  right: -2,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: _getPriorityColor(priority),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      _getPriorityIcon(priority),
-                      size: 12,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    appName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    category,
-                    style: const TextStyle(
-                      color: Colors.orange,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 8),
-                // Confidence bar
-                Row(
-                  children: [
-                    const Text(
-                      'Confidence: ',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                    Expanded(
-                      child: LinearProgressIndicator(
-                        value: confidence,
-                        backgroundColor: Colors.grey[700],
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          confidence > 0.7 ? Colors.green : 
-                          confidence > 0.4 ? Colors.orange : Colors.red,
-                        ),
+                if (isSelected)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: const BoxDecoration(
+                        color: Colors.orange,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check,
+                        color: Colors.white,
+                        size: 14,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${(confidence * 100).toInt()}%',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                // Reasons
-                if (reasons.isNotEmpty)
-                  Text(
-                    'Why: ${reasons.take(2).join(', ')}${reasons.length > 2 ? '...' : ''}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                // Benefits
-                if (benefits.isNotEmpty)
-                  Text(
-                    'Benefits: ${benefits.take(2).join(', ')}${benefits.length > 2 ? '...' : ''}',
-                    style: const TextStyle(color: Colors.green, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
               ],
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.info_outline, color: Colors.orange),
-                  onPressed: () => _showSuggestionDetails(suggestion),
-                ),
-                Checkbox(
-                  value: isSelected,
-                  onChanged: (value) => _toggleAppSelection(packageName),
-                  activeColor: Colors.orange,
-                ),
-              ],
+            const SizedBox(height: 8),
+            Text(
+              app.appName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-            onTap: () => _toggleAppSelection(packageName),
-          ),
-        );
-      },
-    );
-  }
-
-  Color _getPriorityColor(String priority) {
-    switch (priority.toLowerCase()) {
-      case 'high':
-        return Colors.red;
-      case 'medium':
-        return Colors.orange;
-      case 'low':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getPriorityIcon(String priority) {
-    switch (priority.toLowerCase()) {
-      case 'high':
-        return Icons.priority_high;
-      case 'medium':
-        return Icons.remove;
-      case 'low':
-        return Icons.low_priority;
-      default:
-        return Icons.help;
-    }
-  }
-
-  void _showSuggestionDetails(Map<String, dynamic> suggestion) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: Text(
-          suggestion['appName'] ?? 'App Details',
-          style: const TextStyle(color: Colors.orange),
+          ],
         ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Category', suggestion['category'] ?? 'Unknown'),
-              _buildDetailRow('Priority', suggestion['priority'] ?? 'Medium'),
-              _buildDetailRow('Confidence', '${((suggestion['confidence'] ?? 0.0) * 100).toInt()}%'),
-              _buildDetailRow('Difficulty', suggestion['difficulty'] ?? 'Unknown'),
-              const SizedBox(height: 16),
-              const Text(
-                'Reasons for Suggestion:',
-                style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              ...List<String>.from(suggestion['reasons'] ?? []).map(
-                (reason) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• ', style: TextStyle(color: Colors.white)),
-                      Expanded(
-                        child: Text(
-                          reason,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Benefits:',
-                style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              ...List<String>.from(suggestion['benefits'] ?? []).map(
-                (benefit) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• ', style: TextStyle(color: Colors.green)),
-                      Expanded(
-                        child: Text(
-                          benefit,
-                          style: const TextStyle(color: Colors.green),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (List<String>.from(suggestion['risks'] ?? []).isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Text(
-                  'Potential Risks:',
-                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                ...List<String>.from(suggestion['risks'] ?? []).map(
-                  (risk) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('• ', style: TextStyle(color: Colors.red)),
-                        Expanded(
-                          child: Text(
-                            risk,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.orange)),
-          ),
-        ],
       ),
     );
   }
+
+
+
+
+
+
 
   Widget _buildDetailRow(String label, String value) {
     return Padding(
@@ -1004,7 +632,8 @@ class _AppListScreenState extends State<AppListScreen> {
         children: [
           Text(
             label,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold),
           ),
           Text(
             value,
@@ -1015,4 +644,3 @@ class _AppListScreenState extends State<AppListScreen> {
     );
   }
 }
-

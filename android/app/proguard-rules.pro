@@ -123,7 +123,7 @@
 -keep class * implements com.google.gson.JsonDeserializer
 
 # App specific classes (adjust package name as needed)
--keep class com.example.multispace_cloner.** { *; }
+-keep class com.multispace.app.multispace_cloner.** { *; }
 
 # Method channels
 -keep class io.flutter.plugin.common.** { *; }
@@ -140,6 +140,18 @@
 # Crypto
 -keep class javax.crypto.** { *; }
 -keep class java.security.** { *; }
+
+# Google Play Core (handle missing classes)
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
+
+# Google Error Prone annotations (handle missing classes)
+-dontwarn com.google.errorprone.annotations.**
+-keep class com.google.errorprone.annotations.** { *; }
+
+# Google Crypto Tink
+-dontwarn com.google.crypto.tink.**
+-keep class com.google.crypto.tink.** { *; }
 
 # Performance optimization
 -optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*

@@ -1,13 +1,14 @@
 import 'dart:typed_data';
 import 'dart:async';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_info.dart';
-import 'data_isolation_service.dart';
-import 'background_service.dart';
-import 'memory_manager.dart';
 import 'method_channel_optimizer.dart';
+import 'data_isolation_service.dart';
+import 'memory_manager.dart';
+import 'background_service.dart';
 
 class AppService {
   static const String _channelName = 'multispace/apps';
@@ -92,7 +93,7 @@ class AppService {
   /// Get all installed apps from the device with optimized caching and background processing
   static Future<List<AppInfo>> getInstalledApps({
     bool forceRefresh = false,
-    bool excludeSystemApps = true,
+    bool excludeSystemApps = false,
     bool includeIcons = true,
     bool useCache = true,
     bool optimizeForSpeed = false,
@@ -118,19 +119,45 @@ class AppService {
         await initialize();
       }
 
-      // Use optimized method call with minimal data
-      final List<dynamic>? result = await _optimizer.invokeMethod<List<dynamic>>(
-        _channelName,
-        'getInstalledApps',
-        {
-          'excludeSystemApps': excludeSystemApps,
-          'includeIcons': includeIcons && !backgroundLoad, // Skip icons for background loads
-          'optimizeForSpeed': optimizeForSpeed || backgroundLoad,
-          'maxResults': maxResults ?? (backgroundLoad ? 50 : 150),
-          'offset': offset,
-        },
-        timeout, // Use dynamic timeout based on load type
-      );
+      print('🔄 Calling getInstalledApps via method channel...');
+      print('📋 Parameters: excludeSystemApps=$excludeSystemApps, includeIcons=$includeIcons, backgroundLoad=$backgroundLoad, maxResults=$maxResults');
+      
+      // Try direct method channel call first to bypass optimizer
+      final directChannel = MethodChannel(_channelName);
+      List<dynamic>? result;
+      
+      try {
+        print('🔧 Trying direct method channel call...');
+        result = await directChannel.invokeMethod<List<dynamic>>(
+          'getInstalledApps',
+          {
+            'excludeSystemApps': excludeSystemApps,
+            'includeIcons': includeIcons && !backgroundLoad, // Skip icons for background loads
+            'optimizeForSpeed': optimizeForSpeed || backgroundLoad,
+            'maxResults': maxResults ?? (backgroundLoad ? 50 : 150),
+            'offset': offset,
+          },
+        ).timeout(const Duration(seconds: 10));
+        print('✅ Direct method channel call succeeded. Result length: ${result?.length ?? 'null'}');
+      } catch (directError) {
+        print('❌ Direct method channel failed: $directError');
+        print('🔄 Falling back to optimized method channel...');
+        
+        // Fallback to optimized method channel
+        result = await _optimizer.invokeMethod<List<dynamic>>(
+          _channelName,
+          'getInstalledApps',
+          {
+            'excludeSystemApps': excludeSystemApps,
+            'includeIcons': includeIcons && !backgroundLoad, // Skip icons for background loads
+            'optimizeForSpeed': optimizeForSpeed || backgroundLoad,
+            'maxResults': maxResults ?? (backgroundLoad ? 50 : 150),
+            'offset': offset,
+          },
+          timeout, // Use dynamic timeout based on load type
+        );
+        print('✅ Optimized method channel call completed. Result length: ${result?.length ?? 'null'}');
+      }
 
       if (result != null && result.isNotEmpty) {
         // Process apps in background isolate to avoid UI blocking
@@ -149,17 +176,20 @@ class AppService {
         }
       }
     } catch (e) {
-      print('Error getting apps via method channel: $e');
+      print('❌ ERROR getting apps via method channel: $e');
+      print('❌ Error type: ${e.runtimeType}');
+      print('❌ Stack trace: ${StackTrace.current}');
       
       // Return cached data as fallback if available
       if (useCache && _cachedApps != null && _cachedApps!.isNotEmpty) {
-        print('Returning cached apps as fallback (${_cachedApps!.length} apps)');
+        print('⚠️ Returning cached apps as fallback (${_cachedApps!.length} apps)');
         final result = _cachedApps!.skip(offset);
         return maxResults != null ? result.take(maxResults).toList() : result.toList();
       }
       
       // For background loads, return empty list instead of throwing
       if (backgroundLoad) {
+        print('⚠️ Background load failed, returning empty list');
         return [];
       }
     }
@@ -397,6 +427,26 @@ class AppService {
     _cachedApps = null;
     _lastCacheTime = null;
     _iconCache.clear();
+  }
+
+  /// Get cached apps (used for fallback)
+  static List<AppInfo>? getCachedApps() {
+    return _cachedApps;
+  }
+
+  /// Load more apps with pagination
+  static Future<List<AppInfo>> loadMoreApps({
+    required int offset,
+    required int limit,
+    bool includeIcons = true,
+  }) async {
+    return await getInstalledApps(
+      offset: offset,
+      maxResults: limit,
+      includeIcons: includeIcons,
+      useCache: true,
+      optimizeForSpeed: true,
+    );
   }
 
   /// Launch an app by package name
@@ -935,20 +985,7 @@ class AppService {
     }
   }
 
-  /// Load more apps for pagination
-  static Future<List<AppInfo>> loadMoreApps({
-    required int offset,
-    int limit = 50,
-    bool includeIcons = true,
-  }) async {
-    return await getInstalledApps(
-      offset: offset,
-      maxResults: limit,
-      includeIcons: includeIcons,
-      useCache: true,
-      backgroundLoad: true,
-    );
-  }
+
 
   /// Preload cloned apps in background
   static Future<void> _preloadClonedApps() async {
