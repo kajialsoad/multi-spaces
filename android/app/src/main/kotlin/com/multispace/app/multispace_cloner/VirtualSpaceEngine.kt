@@ -2,6 +2,7 @@ package com.multispace.app.multispace_cloner
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Process
 import android.os.UserHandle
