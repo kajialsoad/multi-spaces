@@ -217,25 +217,133 @@ class VirtualSpaceEngine(private val context: Context) {
     private fun launchAppInVirtualSpace(clonedApp: ClonedApp): Boolean {
         return try {
             val packageManager = context.packageManager
-            val intent = packageManager.getLaunchIntentForPackage(clonedApp.originalPackageName)
+            
+            // Try multiple methods to get launch intent
+            var intent = packageManager.getLaunchIntentForPackage(clonedApp.originalPackageName)
+            
+            if (intent == null) {
+                // Fallback: Try to get main activity intent
+                val mainIntent = Intent(Intent.ACTION_MAIN)
+                mainIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+                mainIntent.setPackage(clonedApp.originalPackageName)
+                
+                val resolveInfos = packageManager.queryIntentActivities(mainIntent, 0)
+                if (resolveInfos.isNotEmpty()) {
+                    val resolveInfo = resolveInfos[0]
+                    intent = Intent(Intent.ACTION_MAIN)
+                    intent.addCategory(Intent.CATEGORY_LAUNCHER)
+                    intent.setClassName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name)
+                }
+            }
             
             if (intent != null) {
-                // Set up virtual environment context
+                // Set up virtual environment context first
                 setupVirtualContext(clonedApp)
                 
-                // Launch with virtual space context
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
+                // Configure intent for virtual space
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 
-                Log.d(TAG, "Launched cloned app: ${clonedApp.clonedAppName}")
-                true
+                // Add virtual space metadata to intent
+                intent.putExtra("virtual_space_id", clonedApp.id.toString())
+                intent.putExtra("cloned_package_name", clonedApp.clonedPackageName)
+                intent.putExtra("original_package_name", clonedApp.originalPackageName)
+                intent.putExtra("data_path", clonedApp.dataPath)
+                intent.putExtra("is_virtual_app", true)
+                
+                // Launch with proper error handling
+                try {
+                    context.startActivity(intent)
+                    
+                    // Update launch statistics
+                    updateLaunchStatistics(clonedApp)
+                    
+                    Log.d(TAG, "Successfully launched cloned app: ${clonedApp.clonedAppName}")
+                    return true
+                } catch (activityException: Exception) {
+                    Log.e(TAG, "Failed to start activity for ${clonedApp.originalPackageName}", activityException)
+                    
+                    // Try alternative launch method
+                    return tryAlternativeLaunch(clonedApp)
+                }
             } else {
-                Log.w(TAG, "Launch intent not found for ${clonedApp.originalPackageName}")
-                false
+                Log.w(TAG, "No launch intent found for ${clonedApp.originalPackageName}")
+                return tryAlternativeLaunch(clonedApp)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error launching app in virtual space", e)
-            false
+            return false
+        }
+    }
+    
+    /**
+     * Try alternative launch methods
+     */
+    private fun tryAlternativeLaunch(clonedApp: ClonedApp): Boolean {
+        return try {
+            val packageManager = context.packageManager
+            
+            // Method 1: Try to launch using package info
+            try {
+                val packageInfo = packageManager.getPackageInfo(clonedApp.originalPackageName, PackageManager.GET_ACTIVITIES)
+                if (packageInfo.activities != null && packageInfo.activities.isNotEmpty()) {
+                    val mainActivity = packageInfo.activities.find { activity ->
+                        activity.exported && activity.enabled
+                    } ?: packageInfo.activities[0]
+                    
+                    val intent = Intent()
+                    intent.setClassName(clonedApp.originalPackageName, mainActivity.name)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    intent.putExtra("virtual_space_id", clonedApp.id.toString())
+                    intent.putExtra("is_virtual_app", true)
+                    
+                    context.startActivity(intent)
+                    Log.d(TAG, "Launched using package info method: ${clonedApp.clonedAppName}")
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Package info launch method failed", e)
+            }
+            
+            // Method 2: Try to open app settings as fallback
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = android.net.Uri.parse("package:${clonedApp.originalPackageName}")
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                
+                Log.d(TAG, "Opened app settings as fallback for: ${clonedApp.clonedAppName}")
+                return true
+            } catch (e: Exception) {
+                Log.w(TAG, "App settings fallback failed", e)
+            }
+            
+            Log.e(TAG, "All launch methods failed for: ${clonedApp.clonedAppName}")
+            return false
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Alternative launch methods failed", e)
+            return false
+        }
+    }
+    
+    /**
+     * Update launch statistics
+     */
+    private fun updateLaunchStatistics(clonedApp: ClonedApp) {
+        try {
+            val prefs = dataManager.getClonedAppPreferences(clonedApp.clonedPackageName)
+            val currentLaunches = prefs.getInt("launch_count", 0)
+            
+            prefs.edit().apply {
+                putInt("launch_count", currentLaunches + 1)
+                putLong("last_launch_time", System.currentTimeMillis())
+                putString("last_launch_method", "virtual_space")
+                apply()
+            }
+            
+            Log.d(TAG, "Updated launch statistics for ${clonedApp.clonedAppName}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update launch statistics", e)
         }
     }
     
