@@ -181,6 +181,29 @@ class AppService {
       print('❌ Error type: ${e.runtimeType}');
       print('❌ Stack trace: ${StackTrace.current}');
 
+      // Handle specific permission errors
+      if (e is PlatformException) {
+        if (e.code == 'PERMISSION_ERROR' || e.code == 'NO_APPS_FOUND') {
+          print('🔒 Permission error detected: ${e.message}');
+          
+          // Return cached data as fallback if available
+          if (useCache && _cachedApps != null && _cachedApps!.isNotEmpty) {
+            print('⚠️ Returning cached apps as fallback due to permission error (${_cachedApps!.length} apps)');
+            final result = _cachedApps!.skip(offset);
+            return maxResults != null ? result.take(maxResults).toList() : result.toList();
+          }
+          
+          // For background loads, return empty list instead of throwing
+          if (backgroundLoad) {
+            print('⚠️ Background load failed due to permission, returning empty list');
+            return [];
+          }
+          
+          // Throw a more user-friendly error
+          throw Exception('Permission required: Please grant "Display over other apps" permission in Android settings for this app to access installed applications.');
+        }
+      }
+
       // Return cached data as fallback if available
       if (useCache && _cachedApps != null && _cachedApps!.isNotEmpty) {
         print('⚠️ Returning cached apps as fallback (${_cachedApps!.length} apps)');

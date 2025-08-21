@@ -345,16 +345,47 @@ class MainActivity: FlutterActivity() {
                 }
                 Log.d(TAG, "QUERY_ALL_PACKAGES permission granted: $hasQueryPermission")
 
-                // Try to get packages even without QUERY_ALL_PACKAGES permission
-                // Some apps might still be visible
+                // Try multiple methods to get packages
                 val packages = try {
+                    // First try with GET_META_DATA
                     packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to get installed packages: ${e.message}")
-                    mainHandler.post {
-                        result.error("PERMISSION_ERROR", "Failed to access installed packages. Error: ${e.message}", null)
+                    Log.w(TAG, "Failed to get packages with GET_META_DATA: ${e.message}")
+                    try {
+                        // Fallback to basic package info
+                        packageManager.getInstalledPackages(0)
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "Failed to get installed packages with all methods: ${e2.message}")
+                        
+                        // If we can't get packages, try to get at least some visible apps
+                        val fallbackPackages = mutableListOf<PackageInfo>()
+                        try {
+                            // Try to get some common apps that should be visible
+                            val commonApps = listOf(
+                                "com.android.chrome", "com.google.android.gm", "com.whatsapp",
+                                "com.facebook.katana", "com.instagram.android", "com.twitter.android",
+                                "com.spotify.music", "com.netflix.mediaclient", "com.amazon.mShop.android.shopping"
+                            )
+                            
+                            for (pkg in commonApps) {
+                                try {
+                                    val packageInfo = packageManager.getPackageInfo(pkg, 0)
+                                    fallbackPackages.add(packageInfo)
+                                } catch (ignored: Exception) {
+                                    // App not installed, skip
+                                }
+                            }
+                            
+                            Log.d(TAG, "Using fallback method, found ${fallbackPackages.size} apps")
+                            fallbackPackages
+                        } catch (e3: Exception) {
+                            Log.e(TAG, "All methods failed to get packages: ${e3.message}")
+                            mainHandler.post {
+                                result.error("PERMISSION_ERROR", "Unable to access installed apps. Please ensure QUERY_ALL_PACKAGES permission is granted in app settings.", null)
+                            }
+                            return@execute
+                        }
                     }
-                    return@execute
                 }
                 Log.d(TAG, "Found ${packages.size} total packages from PackageManager")
                 
@@ -460,6 +491,15 @@ class MainActivity: FlutterActivity() {
                 if (appsList.isEmpty()) {
                     Log.w(TAG, "WARNING: No apps found! This might indicate a permission or filtering issue")
                     Log.w(TAG, "Debug info - excludeSystemApps=$excludeSystemApps, hasQueryPermission=$hasQueryPermission")
+                    
+                    // If no apps found and we're excluding system apps, try including them
+                    if (excludeSystemApps && !hasQueryPermission) {
+                        Log.w(TAG, "No apps found with system apps excluded and no QUERY_ALL_PACKAGES permission")
+                        mainHandler.post {
+                            result.error("NO_APPS_FOUND", "No apps found. This may be due to missing QUERY_ALL_PACKAGES permission. Please grant the permission in app settings.", null)
+                        }
+                        return@execute
+                    }
                 }
 
                 // Return result on main thread
@@ -490,16 +530,52 @@ class MainActivity: FlutterActivity() {
         backgroundExecutor.execute {
             try {
                 val packageManager = packageManager
-                val icon = packageManager.getApplicationIcon(packageName)
-                val iconBytes = drawableToByteArray(icon)
+                var icon: Drawable? = null
                 
-                // Cache with size limit
-                if (iconCache.size < ICON_CACHE_SIZE) {
-                    iconCache[iconCacheKey] = android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT)
+                // Try multiple methods to get the app icon
+                try {
+                    // Method 1: Direct package name lookup
+                    icon = packageManager.getApplicationIcon(packageName)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Method 1 failed for $packageName: ${e.message}")
+                    
+                    try {
+                        // Method 2: Get from ApplicationInfo
+                        val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                        icon = packageManager.getApplicationIcon(appInfo)
+                    } catch (e2: Exception) {
+                        Log.w(TAG, "Method 2 failed for $packageName: ${e2.message}")
+                        
+                        try {
+                            // Method 3: Get from PackageInfo
+                            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                            icon = packageManager.getApplicationIcon(packageInfo.applicationInfo)
+                        } catch (e3: Exception) {
+                            Log.w(TAG, "Method 3 failed for $packageName: ${e3.message}")
+                            
+                            // Method 4: Use default icon as fallback
+                            icon = packageManager.getDefaultActivityIcon()
+                        }
+                    }
                 }
                 
-                mainHandler.post {
-                    result.success(android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT))
+                if (icon != null) {
+                    val iconBytes = drawableToByteArray(icon)
+                    val base64Icon = android.util.Base64.encodeToString(iconBytes, android.util.Base64.NO_WRAP)
+                    
+                    // Cache with size limit
+                    if (iconCache.size < ICON_CACHE_SIZE) {
+                        iconCache[iconCacheKey] = base64Icon
+                    }
+                    
+                    mainHandler.post {
+                        result.success(base64Icon)
+                    }
+                } else {
+                    Log.e(TAG, "Could not get any icon for $packageName")
+                    mainHandler.post {
+                        result.error("ERROR", "Could not get app icon", null)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to get app icon for $packageName", e)
@@ -1201,18 +1277,28 @@ class MainActivity: FlutterActivity() {
       }
   
       private fun drawableToByteArray(drawable: Drawable): ByteArray {
+        // Handle cases where intrinsic dimensions are invalid
+        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 96
+        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 96
+        
         val bitmap = Bitmap.createBitmap(
-            drawable.intrinsicWidth,
-            drawable.intrinsicHeight,
+            width,
+            height,
             Bitmap.Config.ARGB_8888
         )
         val canvas = Canvas(bitmap)
-        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.setBounds(0, 0, width, height)
         drawable.draw(canvas)
         
         val stream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-        return stream.toByteArray()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream) // Slightly reduce quality for smaller size
+        val result = stream.toByteArray()
+        
+        // Clean up
+        bitmap.recycle()
+        stream.close()
+        
+        return result
     }
     
     // Helper methods for app cloning
