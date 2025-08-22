@@ -100,3 +100,4 @@ Code committed - সব changes git-এ save হয়েছে
 Android Studio দিয়ে SDK 34 install করুন
 flutter build apk --release run করুন
 APK test করুন mobile-এ
+APK test করুন mobile-এ
