@@ -344,6 +344,20 @@ class MainActivity: FlutterActivity() {
                     true // Not needed for older versions
                 }
                 Log.d(TAG, "QUERY_ALL_PACKAGES permission granted: $hasQueryPermission")
+                
+                // Request permission if not granted
+                if (!hasQueryPermission && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    Log.d(TAG, "Requesting QUERY_ALL_PACKAGES permission")
+                    pendingPermissionResult = result
+                    mainHandler.post {
+                        androidx.core.app.ActivityCompat.requestPermissions(
+                            this@MainActivity,
+                            arrayOf(android.Manifest.permission.QUERY_ALL_PACKAGES),
+                            PERMISSION_REQUEST_CODE
+                        )
+                    }
+                    return@execute
+                }
 
                 // Try multiple methods to get packages
                 val packages = try {
@@ -453,15 +467,30 @@ class MainActivity: FlutterActivity() {
                             try {
                                 val icon = packageManager.getApplicationIcon(appInfo)
                                 val iconBytes = drawableToByteArray(icon)
-                                appData["icon"] = android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT)
                                 
-                                // Cache icon with size limit
-                                if (iconCache.size < ICON_CACHE_SIZE) {
-                                    iconCache[iconCacheKey] = android.util.Base64.encodeToString(iconBytes, android.util.Base64.DEFAULT)
+                                // Validate byte array before encoding
+                                if (iconBytes.isNotEmpty() && iconBytes.size < 1024 * 1024) { // Max 1MB
+                                    val base64Icon = android.util.Base64.encodeToString(iconBytes, android.util.Base64.NO_WRAP)
+                                    
+                                    // Validate Base64 string
+                                    if (base64Icon.isNotEmpty() && isValidBase64(base64Icon)) {
+                                        appData["icon"] = base64Icon
+                                        
+                                        // Cache icon with size limit
+                                        if (iconCache.size < ICON_CACHE_SIZE) {
+                                            iconCache[iconCacheKey] = base64Icon
+                                        }
+                                    } else {
+                                        Log.w(TAG, "Invalid base64 for $packageName, using fallback")
+                                        appData["icon"] = createFallbackIcon(packageName)
+                                    }
+                                } else {
+                                    Log.w(TAG, "Invalid icon bytes for $packageName, using fallback")
+                                    appData["icon"] = createFallbackIcon(packageName)
                                 }
                             } catch (e: Exception) {
                                 Log.w(TAG, "Failed to load icon for $packageName: ${e.message}")
-                                appData["icon"] = null
+                                appData["icon"] = createFallbackIcon(packageName)
                             }
                         }
                     } else {
@@ -560,27 +589,53 @@ class MainActivity: FlutterActivity() {
                 }
                 
                 if (icon != null) {
-                    val iconBytes = drawableToByteArray(icon)
-                    val base64Icon = android.util.Base64.encodeToString(iconBytes, android.util.Base64.NO_WRAP)
-                    
-                    // Cache with size limit
-                    if (iconCache.size < ICON_CACHE_SIZE) {
-                        iconCache[iconCacheKey] = base64Icon
-                    }
-                    
-                    mainHandler.post {
-                        result.success(base64Icon)
+                    try {
+                        val iconBytes = drawableToByteArray(icon)
+                        
+                        // Validate byte array before encoding
+                        if (iconBytes.isNotEmpty() && iconBytes.size < 1024 * 1024) { // Max 1MB
+                            val base64Icon = android.util.Base64.encodeToString(iconBytes, android.util.Base64.NO_WRAP)
+                            
+                            // Validate Base64 string
+                            if (base64Icon.isNotEmpty() && isValidBase64(base64Icon)) {
+                                // Cache with size limit
+                                if (iconCache.size < ICON_CACHE_SIZE) {
+                                    iconCache[iconCacheKey] = base64Icon
+                                }
+                                
+                                mainHandler.post {
+                                    result.success(base64Icon)
+                                }
+                                return@execute
+                            }
+                        }
+                        
+                        // If validation fails, use a simple fallback
+                        Log.w(TAG, "Icon validation failed for $packageName, using fallback")
+                        val fallbackIcon = createFallbackIcon(packageName)
+                        mainHandler.post {
+                            result.success(fallbackIcon)
+                        }
+                        
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing icon for $packageName: ${e.message}")
+                        val fallbackIcon = createFallbackIcon(packageName)
+                        mainHandler.post {
+                            result.success(fallbackIcon)
+                        }
                     }
                 } else {
                     Log.e(TAG, "Could not get any icon for $packageName")
+                    val fallbackIcon = createFallbackIcon(packageName)
                     mainHandler.post {
-                        result.error("ERROR", "Could not get app icon", null)
+                        result.success(fallbackIcon)
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to get app icon for $packageName", e)
+                val fallbackIcon = createFallbackIcon(packageName)
                 mainHandler.post {
-                    result.error("ERROR", "Failed to get app icon: ${e.message}", null)
+                    result.success(fallbackIcon)
                 }
             }
         }
@@ -825,6 +880,8 @@ class MainActivity: FlutterActivity() {
         try {
             val clonedAppsList = mutableListOf<Map<String, Any>>()
             val clonedApps = virtualSpaceEngine.getAllClonedApps()
+            
+            Log.d(TAG, "getClonedApps: Found ${clonedApps.size} cloned apps in database")
             
             for (clonedApp in clonedApps) {
                 try {
@@ -1299,6 +1356,68 @@ class MainActivity: FlutterActivity() {
         stream.close()
         
         return result
+    }
+    
+    private fun isValidBase64(base64String: String): Boolean {
+        return try {
+            // Check if string contains only valid Base64 characters
+            val base64Pattern = "^[A-Za-z0-9+/]*={0,2}$".toRegex()
+            if (!base64Pattern.matches(base64String)) {
+                return false
+            }
+            
+            // Try to decode to verify it's valid
+            android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    private fun createFallbackIcon(packageName: String): String {
+        return try {
+            // Create a simple colored square as fallback
+            val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            
+            // Use package name hash to generate a consistent color
+            val hash = packageName.hashCode()
+            val color = android.graphics.Color.HSVToColor(floatArrayOf(
+                (hash % 360).toFloat(),
+                0.7f,
+                0.8f
+            ))
+            
+            canvas.drawColor(color)
+            
+            // Add first letter of app name if possible
+            try {
+                val appName = getAppDisplayName(packageName)
+                val paint = android.graphics.Paint().apply {
+                    this.color = android.graphics.Color.WHITE
+                    textSize = 48f
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    isAntiAlias = true
+                }
+                
+                val letter = appName.firstOrNull()?.toString()?.uppercase() ?: "?"
+                canvas.drawText(letter, 48f, 60f, paint)
+            } catch (e: Exception) {
+                // Ignore text drawing errors
+            }
+            
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
+            val iconBytes = stream.toByteArray()
+            
+            bitmap.recycle()
+            stream.close()
+            
+            android.util.Base64.encodeToString(iconBytes, android.util.Base64.NO_WRAP)
+        } catch (e: Exception) {
+            // Return a minimal valid Base64 string for a 1x1 transparent PNG
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        }
     }
     
     // Helper methods for app cloning
