@@ -257,10 +257,10 @@ class PerformanceOptimizationResult {
     return PerformanceOptimizationResult(
       success: map['success'] as bool? ?? false,
       error: map['error'] as String?,
-      cpuOptimization: map['cpuOptimization'] as Map<String, dynamic>?,
-      memoryOptimization: map['memoryOptimization'] as Map<String, dynamic>?,
-      batteryOptimization: map['batteryOptimization'] as Map<String, dynamic>?,
-      taskOptimization: map['taskOptimization'] as Map<String, dynamic>?,
+      cpuOptimization: map['cpuOptimization'] != null ? Map<String, dynamic>.from(map['cpuOptimization']) : null,
+      memoryOptimization: map['memoryOptimization'] != null ? Map<String, dynamic>.from(map['memoryOptimization']) : null,
+      batteryOptimization: map['batteryOptimization'] != null ? Map<String, dynamic>.from(map['batteryOptimization']) : null,
+      taskOptimization: map['taskOptimization'] != null ? Map<String, dynamic>.from(map['taskOptimization']) : null,
       timestamp: map['timestamp'] as int? ?? 0,
     );
   }

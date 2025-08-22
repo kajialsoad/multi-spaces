@@ -23,10 +23,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    print('🏠 HomeScreen.initState() called - Creating screens');
     _screens = [
       const ClonedAppsScreen(),
       _buildSettingsScreen(),
     ];
+    print('📱 HomeScreen: Created ${_screens.length} screens, selectedIndex: $_selectedIndex');
     // Preload apps in background for better performance
     _preloadAppsInBackground();
   }
@@ -42,123 +44,125 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    print('🔄 HomeScreen.build() called - selectedIndex: $_selectedIndex, showing screen: ${_selectedIndex == 0 ? "ClonedAppsScreen" : "SettingsScreen"}');
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.menu, color: Colors.white),
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Menu opened'),
-                duration: Duration(seconds: 1),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          },
+          icon: const Icon(Icons.menu, color: Color(0xFF6366F1)),
+          onPressed: () => _showAboutDialog(),
         ),
         title: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 32,
-              height: 32,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
                 gradient: const LinearGradient(
-                  colors: [Colors.orange, Colors.deepOrange],
+                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF6366F1).withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: const Icon(
                 Icons.apps,
                 color: Colors.white,
-                size: 20,
+                size: 22,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 16),
             const Text(
               'MultiSpace',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w500,
+                fontSize: 26,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
               ),
             ),
           ],
         ),
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFF1A1A1A),
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline, color: Colors.white),
-            onPressed: () {
-              _showAboutDialog();
-            },
+            icon: const Icon(Icons.info_outline, color: Color(0xFF6366F1)),
+            onPressed: () => _showAboutDialog(),
           ),
         ],
       ),
       body: _screens[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        backgroundColor: Colors.grey[900],
-        selectedItemColor: Colors.orange,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.apps),
-            label: 'Apps',
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 16,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
+          backgroundColor: Colors.transparent,
+          selectedItemColor: const Color(0xFF6366F1),
+          unselectedItemColor: Colors.white54,
+          type: BottomNavigationBarType.fixed,
+          elevation: 0,
+          selectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
+          unselectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.w400,
+            fontSize: 12,
           ),
-        ],
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.apps_rounded),
+              label: 'Apps',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_rounded),
+              label: 'Settings',
+            ),
+          ],
+        ),
       ),
       floatingActionButton: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(20),
           gradient: const LinearGradient(
-            colors: [Colors.orange, Colors.deepOrange],
+            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.orange.withOpacity(0.3),
-              blurRadius: 15,
+              color: const Color(0xFF6366F1).withOpacity(0.4),
+              blurRadius: 16,
               offset: const Offset(0, 8),
             ),
           ],
         ),
         child: FloatingActionButton(
-          onPressed: () async {
-            // Check permissions before navigating
-            final hasPermissions = await PermissionService.hasAllRequiredPermissions();
-
-            if (!hasPermissions) {
-              final granted = await PermissionService.requestPermissionsWithFlow(context);
-              if (!granted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Permissions are required to clone apps'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-            }
-
+          onPressed: () {
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const AppListScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const AppListScreen()),
             );
           },
           backgroundColor: Colors.transparent,
@@ -166,7 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: const Icon(
             Icons.add,
             color: Colors.white,
-            size: 30,
+            size: 28,
           ),
         ),
       ),
