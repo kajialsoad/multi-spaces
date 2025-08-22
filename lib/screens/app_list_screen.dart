@@ -71,7 +71,7 @@ class _AppListScreenState extends State<AppListScreen> {
         maxResults: null, // Load all apps, no limit
         includeIcons: true,
         optimizeForSpeed: false, // Don't optimize for speed to get all apps
-        excludeSystemApps: true, // Exclude system apps for better UX
+        excludeSystemApps: false, // Include all apps to debug
       ).timeout(
         const Duration(seconds: 10), // Longer timeout for all apps
         onTimeout: () {
@@ -404,18 +404,19 @@ class _AppListScreenState extends State<AppListScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.orange),
+          icon: const Icon(Icons.arrow_back, color: Color(0xFF6366F1)),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
           'Add to MultiSpace',
           style: TextStyle(
-            color: Colors.orange,
-            fontSize: 20,
-            fontWeight: FontWeight.w500,
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
           ),
         ),
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFF1A1A1A),
         elevation: 0,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(120),
@@ -423,42 +424,72 @@ class _AppListScreenState extends State<AppListScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: TextField(
-                  onChanged: _onSearchChanged,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search apps...',
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    prefixIcon: const Icon(Icons.search, color: Colors.orange),
-                    filled: true,
-                    fillColor: Colors.grey[800],
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ),
-              // App count display
-              Container(
-                height: 40,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.orange,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(
-                      'All Apps (${installedApps.length})',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    color: const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xFF6366F1).withOpacity(0.2),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
+                    ],
+                  ),
+                  child: TextField(
+                    onChanged: _onSearchChanged,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    decoration: InputDecoration(
+                      hintText: 'Search apps...',
+                      hintStyle: const TextStyle(color: Colors.white54, fontSize: 16),
+                      prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF6366F1)),
+                      filled: true,
+                      fillColor: Colors.transparent,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    const Text(
+                      'All Apps',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${filteredApps.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -468,16 +499,45 @@ class _AppListScreenState extends State<AppListScreen> {
           if (selectedApps.isNotEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              color: Colors.grey[800],
-              child: Text(
-                '${selectedApps.length} app(s) selected',
-                style: const TextStyle(
-                  color: Colors.orange,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A1A),
+                border: Border(
+                  top: BorderSide(
+                    color: const Color(0xFF6366F1).withOpacity(0.2),
+                    width: 1,
+                  ),
                 ),
-                textAlign: TextAlign.center,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFF6366F1).withOpacity(0.3),
+                      ),
+                    ),
+                    child: Text(
+                      '${selectedApps.length} app(s) selected',
+                      style: const TextStyle(
+                        color: Color(0xFF6366F1),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                ],
               ),
             ),
           Expanded(
@@ -505,32 +565,57 @@ class _AppListScreenState extends State<AppListScreen> {
           if (selectedApps.isNotEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF212121),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A1A),
+                border: Border(
+                  top: BorderSide(
+                    color: const Color(0xFF6366F1).withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Color(0x4D000000),
-                    blurRadius: 8,
-                    offset: Offset(0, -4),
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, -4),
                   ),
                 ],
               ),
-              child: ElevatedButton(
-                onPressed: _cloneSelectedApps,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF6366F1).withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  'CLONE ${selectedApps.length} APP${selectedApps.length > 1 ? 'S' : ''}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                child: ElevatedButton(
+                  onPressed: _cloneSelectedApps,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: Colors.white,
+                    shadowColor: Colors.transparent,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: Text(
+                    'CLONE ${selectedApps.length} APP${selectedApps.length > 1 ? 'S' : ''}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ),
@@ -547,10 +632,10 @@ class _AppListScreenState extends State<AppListScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: isSelected
-              ? Border.all(color: Colors.orange, width: 2)
+              ? Border.all(color: const Color(0xFF6366F1), width: 2)
               : Border.all(color: Colors.transparent, width: 2),
           color: isSelected
-              ? Colors.orange.withOpacity(0.1)
+              ? const Color(0xFF6366F1).withOpacity(0.1)
               : Colors.transparent,
         ),
         child: Column(
@@ -596,7 +681,7 @@ class _AppListScreenState extends State<AppListScreen> {
                       width: 20,
                       height: 20,
                       decoration: const BoxDecoration(
-                        color: Colors.orange,
+                        color: Color(0xFF6366F1),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(

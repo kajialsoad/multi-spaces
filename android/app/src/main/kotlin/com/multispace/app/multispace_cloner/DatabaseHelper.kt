@@ -147,8 +147,10 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
      * Get all cloned apps
      */
     fun getAllClonedApps(): List<ClonedApp> {
-        val apps = mutableListOf<ClonedApp>()
+        val clonedApps = mutableListOf<ClonedApp>()
         val db = readableDatabase
+        
+        Log.d("DatabaseHelper", "getAllClonedApps: Querying database for active cloned apps")
         
         try {
             val cursor = db.query(
@@ -162,30 +164,32 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
             
             cursor.use {
+                Log.d("DatabaseHelper", "getAllClonedApps: Cursor count = ${it.count}")
                 while (it.moveToNext()) {
-                    apps.add(
-                        ClonedApp(
-                            id = it.getLong(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ID)),
-                            originalPackageName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ORIGINAL_PACKAGE)),
-                            clonedPackageName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_CLONED_PACKAGE)),
-                            appName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_APP_NAME)),
-                            clonedAppName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_CLONED_APP_NAME)),
-                            iconPath = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ICON_PATH)),
-                            isActive = it.getInt(it.getColumnIndexOrThrow(ClonedApp.COLUMN_IS_ACTIVE)) == 1,
-                            createdAt = it.getLong(it.getColumnIndexOrThrow(ClonedApp.COLUMN_CREATED_AT)),
-                            lastUsed = it.getLong(it.getColumnIndexOrThrow(ClonedApp.COLUMN_LAST_USED)),
-                            dataPath = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_DATA_PATH)),
-                            userId = it.getInt(it.getColumnIndexOrThrow(ClonedApp.COLUMN_USER_ID)),
-                            accountInfo = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ACCOUNT_INFO))
-                        )
+                    val clonedApp = ClonedApp(
+                        id = it.getLong(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ID)),
+                        originalPackageName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ORIGINAL_PACKAGE)),
+                        clonedPackageName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_CLONED_PACKAGE)),
+                        appName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_APP_NAME)),
+                        clonedAppName = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_CLONED_APP_NAME)),
+                        iconPath = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ICON_PATH)),
+                        isActive = it.getInt(it.getColumnIndexOrThrow(ClonedApp.COLUMN_IS_ACTIVE)) == 1,
+                        createdAt = it.getLong(it.getColumnIndexOrThrow(ClonedApp.COLUMN_CREATED_AT)),
+                        lastUsed = it.getLong(it.getColumnIndexOrThrow(ClonedApp.COLUMN_LAST_USED)),
+                        dataPath = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_DATA_PATH)),
+                        userId = it.getInt(it.getColumnIndexOrThrow(ClonedApp.COLUMN_USER_ID)),
+                        accountInfo = it.getString(it.getColumnIndexOrThrow(ClonedApp.COLUMN_ACCOUNT_INFO))
                     )
+                    clonedApps.add(clonedApp)
+                    Log.d("DatabaseHelper", "getAllClonedApps: Added app ${clonedApp.clonedAppName} (${clonedApp.originalPackageName})")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting cloned apps", e)
+            Log.e("DatabaseHelper", "Error getting cloned apps", e)
         }
         
-        return apps
+        Log.d("DatabaseHelper", "getAllClonedApps: Returning ${clonedApps.size} cloned apps")
+        return clonedApps
     }
 
     /**

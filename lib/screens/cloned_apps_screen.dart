@@ -19,31 +19,36 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
   @override
   void initState() {
     super.initState();
+    print('🚀 ClonedAppsScreen.initState() called - Screen is being initialized');
     _loadClonedApps();
     _loadSystemInfo();
   }
 
   Future<void> _loadClonedApps() async {
     if (!mounted) return;
+    print('🔄 ClonedAppsScreen._loadClonedApps() called');
 
     try {
-      // Load cloned apps with timeout to prevent hanging
+      // Load cloned apps with increased timeout
       final apps = await AppService.getClonedApps()
-          .timeout(const Duration(seconds: 2));
+          .timeout(const Duration(seconds: 10));
+      print('📱 ClonedAppsScreen received ${apps.length} cloned apps from AppService');
 
       if (mounted) {
         setState(() {
           clonedApps = apps;
           isLoading = false;
         });
+        print('✅ ClonedAppsScreen state updated with ${clonedApps.length} apps, isLoading: $isLoading');
       }
     } catch (e) {
-      print('Error loading cloned apps: $e');
+      print('❌ Error loading cloned apps in ClonedAppsScreen: $e');
       if (mounted) {
         setState(() {
           isLoading = false;
           clonedApps = []; // Set empty list instead of crashing
         });
+        print('⚠️ ClonedAppsScreen set to empty state due to error');
       }
     }
   }
@@ -160,28 +165,45 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
 
   Widget _buildInfoCard(String title, String value, IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.grey[800],
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          Icon(icon, color: Colors.orange, size: 20),
-          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: const Color(0xFF6366F1), size: 28),
+          ),
+          const SizedBox(height: 12),
           Text(
             value,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
             ),
           ),
+          const SizedBox(height: 6),
           Text(
             title,
             style: const TextStyle(
-              color: Colors.grey,
-              fontSize: 10,
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -190,29 +212,65 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.apps,
-            size: 80,
-            color: Colors.grey,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'No cloned apps yet',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 18,
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: const Color(0xFF6366F1).withOpacity(0.2),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-          ),
-          SizedBox(height: 10),
-          Text(
-            'Tap + to add apps',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 14,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.apps_rounded,
+                    size: 48,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'No cloned apps yet',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Tap the + button to clone your first app\nand enjoy multiple accounts!',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -354,7 +412,10 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
     try {
       // Use optimized launch method for cloned apps
       final ok = app.isCloned
-          ? await AppService.launchClonedApp(app.packageName)
+          ? await AppService.launchClonedApp(
+              app.packageName,
+              clonedAppId: app.clonedAppId,
+            )
           : await AppService.launchApp(app.packageName);
 
       if (!mounted) return;

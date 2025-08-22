@@ -11,6 +11,7 @@ class AppInfo {
   final Color color;
   String? displayName;
   int cloneCount;
+  int? clonedAppId; // ID for cloned apps from database
 
   AppInfo({
     required this.appName,
@@ -21,6 +22,7 @@ class AppInfo {
     this.color = Colors.blue,
     this.displayName,
     this.cloneCount = 1,
+    this.clonedAppId,
   });
 
   factory AppInfo.fromMap(Map<String, dynamic> map) {
@@ -49,6 +51,7 @@ class AppInfo {
       color: _getColorFromPackage(map['packageName'] ?? ''),
       displayName: map['displayName'],
       cloneCount: map['cloneCount'] ?? 1,
+      clonedAppId: map['clonedAppId'],
     );
   }
 
@@ -89,6 +92,7 @@ class AppInfo {
       'isCloned': isCloned,
       'displayName': displayName,
       'cloneCount': cloneCount,
+      'clonedAppId': clonedAppId,
     };
   }
 
@@ -101,6 +105,7 @@ class AppInfo {
     Color? color,
     String? displayName,
     int? cloneCount,
+    int? clonedAppId,
   }) {
     return AppInfo(
       appName: appName ?? this.appName,
@@ -111,6 +116,7 @@ class AppInfo {
       color: color ?? this.color,
       displayName: displayName ?? this.displayName,
       cloneCount: cloneCount ?? this.cloneCount,
+      clonedAppId: clonedAppId ?? this.clonedAppId,
     );
   }
 }

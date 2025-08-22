@@ -181,6 +181,29 @@ class AppService {
       print('❌ Error type: ${e.runtimeType}');
       print('❌ Stack trace: ${StackTrace.current}');
 
+      // Handle specific permission errors
+      if (e is PlatformException) {
+        if (e.code == 'PERMISSION_ERROR' || e.code == 'NO_APPS_FOUND') {
+          print('🔒 Permission error detected: ${e.message}');
+          
+          // Return cached data as fallback if available
+          if (useCache && _cachedApps != null && _cachedApps!.isNotEmpty) {
+            print('⚠️ Returning cached apps as fallback due to permission error (${_cachedApps!.length} apps)');
+            final result = _cachedApps!.skip(offset);
+            return maxResults != null ? result.take(maxResults).toList() : result.toList();
+          }
+          
+          // For background loads, return empty list instead of throwing
+          if (backgroundLoad) {
+            print('⚠️ Background load failed due to permission, returning empty list');
+            return [];
+          }
+          
+          // Throw a more user-friendly error
+          throw Exception('Permission required: Please grant "Display over other apps" permission in Android settings for this app to access installed applications.');
+        }
+      }
+
       // Return cached data as fallback if available
       if (useCache && _cachedApps != null && _cachedApps!.isNotEmpty) {
         print('⚠️ Returning cached apps as fallback (${_cachedApps!.length} apps)');
@@ -226,10 +249,88 @@ class AppService {
     return apps;
   }
 
-  /// Get cloned apps
+  /// Get cloned apps with enhanced error handling and fallback
   static Future<List<AppInfo>> getClonedApps() async {
+    print('🔍 Starting getClonedApps...');
+    
+    try {
+      // Try to get from native first
+      print('🔄 Calling native getClonedApps...');
+      final dynamic nativeResult = await _invokeOptimized('getClonedApps', {});
+      
+      print('📋 Native result type: ${nativeResult.runtimeType}');
+      print('📋 Native result: $nativeResult');
+      
+      if (nativeResult != null && nativeResult is List) {
+        print('✅ Native result is a list with ${nativeResult.length} items');
+        final List<AppInfo> clonedApps = [];
+        
+        for (int i = 0; i < nativeResult.length; i++) {
+          final item = nativeResult[i];
+          print('🔍 Processing item $i: ${item.runtimeType} - $item');
+          
+          try {
+            // Convert Map<Object?, Object?> to Map<String, dynamic> safely
+            Map<String, dynamic> appData;
+            if (item is Map<String, dynamic>) {
+              appData = item;
+            } else if (item is Map) {
+              // Handle Map<Object?, Object?> conversion more safely
+              appData = <String, dynamic>{};
+              item.forEach((key, value) {
+                if (key != null) {
+                  final keyStr = key.toString();
+                  // Handle different value types safely
+                  if (value != null) {
+                    appData[keyStr] = value;
+                  } else {
+                    appData[keyStr] = null;
+                  }
+                }
+              });
+            } else {
+              print('❌ Skipping invalid item: ${item.runtimeType}');
+              continue; // Skip invalid items
+            }
+            
+            print('📱 App data: $appData');
+            
+            if (appData.containsKey('packageName') && appData.containsKey('appName')) {
+              final appInfo = AppInfo(
+                packageName: appData['packageName'] ?? '',
+                appName: appData['appName'] ?? '',
+                isCloned: appData['isCloned'] ?? true,
+                clonedAppId: appData['id'],
+                icon: null, // Will be loaded separately for performance
+              );
+              clonedApps.add(appInfo);
+              print('✅ Added cloned app: ${appInfo.appName} (${appInfo.packageName})');
+            } else {
+              print('❌ Missing required fields in app data: $appData');
+            }
+          } catch (e) {
+            print('❌ Error parsing cloned app item $i: $e');
+          }
+        }
+        
+        if (clonedApps.isNotEmpty) {
+          print('🎯 Returning ${clonedApps.length} cloned apps from native');
+          return clonedApps;
+        } else {
+          print('⚠️ No valid cloned apps found in native result');
+        }
+      } else {
+        print('⚠️ Native result is null or not a list');
+      }
+    } catch (e) {
+      print('❌ Error getting cloned apps from native: $e');
+    }
+    
+    // Fallback to SharedPreferences if native method fails
+    print('🔄 Falling back to SharedPreferences...');
     final prefs = await SharedPreferences.getInstance();
     final clonedAppsJson = prefs.getStringList(_clonedAppsKey) ?? [];
+    print('📦 SharedPreferences has ${clonedAppsJson.length} stored cloned apps');
 
     List<AppInfo> clonedApps = [];
     for (String appJson in clonedAppsJson) {
@@ -245,7 +346,9 @@ class AppService {
             isCloned: true,
             displayName: parts.length > 3 ? parts[3] : 'Clone $cloneId',
             cloneCount: cloneId,
+            clonedAppId: cloneId, // Set the cloned app ID
           ));
+          print('✅ Added from SharedPreferences: ${parts[0]} (ID: $cloneId)');
         } else if (parts.length >= 2) {
           // Legacy format support
           clonedApps.add(AppInfo(
@@ -253,13 +356,16 @@ class AppService {
             packageName: parts[1],
             isCloned: true,
             displayName: parts.length > 2 ? parts[2] : null,
+            clonedAppId: 1, // Default ID for legacy format
           ));
+          print('✅ Added legacy format: ${parts[0]}');
         }
       } catch (e) {
         print('Error parsing cloned app: $e');
       }
     }
 
+    print('🎯 Returning ${clonedApps.length} cloned apps from SharedPreferences fallback');
     return clonedApps;
   }
 
@@ -271,7 +377,7 @@ class AppService {
 
       // Try native cloning with timeout to prevent hanging
       try {
-        final Map<String, dynamic>? result = await _optimizer.invokeMethod<Map<String, dynamic>>(
+        final dynamic rawResult = await _optimizer.invokeMethod(
           _channelName,
           'cloneApp',
           {
@@ -283,6 +389,20 @@ class AppService {
           },
           const Duration(seconds: 3), // Quick timeout
         );
+        
+        // Convert the result to Map<String, dynamic> safely
+        Map<String, dynamic>? result;
+        if (rawResult is Map<String, dynamic>) {
+          result = rawResult;
+        } else if (rawResult is Map) {
+          // Handle Map<Object?, Object?> conversion more safely
+          result = <String, dynamic>{};
+          rawResult.forEach((key, value) {
+            if (key != null && value != null) {
+              result![key.toString()] = value;
+            }
+          });
+        }
 
         if (result != null && result['success'] == true) {
           // Create isolated data directory asynchronously
@@ -471,11 +591,18 @@ class AppService {
   }
 
   /// Launch cloned app
-  static Future<bool> launchClonedApp(String packageName) async {
+  static Future<bool> launchClonedApp(String packageName, {int? clonedAppId}) async {
     try {
-      final bool? result = await _invokeOptimized<bool>('launchClonedApp', {
+      final Map<String, dynamic> params = {
         'packageName': packageName,
-      });
+      };
+      
+      // Add cloned app ID if provided
+      if (clonedAppId != null) {
+        params['id'] = clonedAppId;
+      }
+      
+      final bool? result = await _invokeOptimized<bool>('launchClonedApp', params);
       return result ?? false;
     } catch (e) {
       print('Error launching cloned app: $e');
