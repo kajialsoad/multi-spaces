@@ -9,8 +9,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   print('🚀 MAIN: App starting - MultiSpace Cloner');
-
-  // Pre-initialize services for faster startup
+// Pre-initialize services for faster startup
   try {
     await AppService.initialize();
     print('✅ MAIN: AppService initialized successfully');

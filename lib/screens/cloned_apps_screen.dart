@@ -7,14 +7,17 @@ class ClonedAppsScreen extends StatefulWidget {
   const ClonedAppsScreen({super.key});
 
   @override
-  State<ClonedAppsScreen> createState() => _ClonedAppsScreenState();
+  ClonedAppsScreenState createState() => ClonedAppsScreenState();
 }
 
-class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
+class ClonedAppsScreenState extends State<ClonedAppsScreen> with AutomaticKeepAliveClientMixin {
   List<AppInfo> clonedApps = [];
   bool isLoading = true;
   Map<String, dynamic>? memoryInfo;
   Map<String, dynamic>? globalStats;
+
+  @override
+  bool get wantKeepAlive => false; // Don't keep alive to allow refresh
 
   @override
   void initState() {
@@ -22,6 +25,24 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
     print('🚀 ClonedAppsScreen.initState() called - Screen is being initialized');
     _loadClonedApps();
     _loadSystemInfo();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh when screen becomes visible
+    _refreshClonedApps();
+  }
+
+  /// Refresh cloned apps list
+  Future<void> refreshClonedApps() async {
+    print('🔄 ClonedAppsScreen.refreshClonedApps() called');
+    await _loadClonedApps();
+  }
+
+  /// Private refresh method for internal use
+  Future<void> _refreshClonedApps() async {
+    await refreshClonedApps();
   }
 
   Future<void> _loadClonedApps() async {
@@ -77,21 +98,29 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.orange),
       );
     }
 
-    return Column(
-      children: [
-        // System Info Header
-        _buildSystemInfoHeader(),
-        // Apps Grid
-        Expanded(
-          child: clonedApps.isEmpty ? _buildEmptyState() : _buildAppsGrid(),
-        ),
-      ],
+    return RefreshIndicator(
+      onRefresh: _refreshClonedApps,
+      color: Colors.orange,
+      backgroundColor: Colors.grey[900],
+      child: Column(
+        children: [
+          // System Info Header
+          _buildSystemInfoHeader(),
+          
+          // Apps Grid
+          Expanded(
+            child: clonedApps.isEmpty ? _buildEmptyState() : _buildAppsGrid(),
+          ),
+        ],
+      ),
     );
   }
 
@@ -627,9 +656,8 @@ class _ClonedAppsScreenState extends State<ClonedAppsScreen> {
 
   void _cloneAgain(AppInfo app) {
     AppService.cloneApp(app.packageName).then((_) {
-      setState(() {
-        app.cloneCount++;
-      });
+      // Refresh the entire list to show new clone instantly
+      _refreshClonedApps();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${app.appName} cloned again successfully!'),

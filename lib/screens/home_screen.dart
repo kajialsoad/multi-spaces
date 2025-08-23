@@ -17,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   // Removed system information variables
+  final GlobalKey<ClonedAppsScreenState> _clonedAppsKey = GlobalKey<ClonedAppsScreenState>();
 
   late final List<Widget> _screens;
 
@@ -25,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     print('🏠 HomeScreen.initState() called - Creating screens');
     _screens = [
-      const ClonedAppsScreen(),
+      ClonedAppsScreen(key: _clonedAppsKey),
       _buildSettingsScreen(),
     ];
     print('📱 HomeScreen: Created ${_screens.length} screens, selectedIndex: $_selectedIndex');
@@ -159,11 +160,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         child: FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
+          onPressed: () async {
+            print('🎯 HomeScreen: FloatingActionButton pressed - Navigating to AppListScreen');
+            final result = await Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const AppListScreen()),
             );
+            // Refresh cloned apps when returning from AppListScreen
+            if (result == true && _clonedAppsKey.currentState != null) {
+              print('🔄 HomeScreen: Refreshing ClonedAppsScreen after returning from AppListScreen');
+              _clonedAppsKey.currentState!.refreshClonedApps();
+            }
           },
           backgroundColor: Colors.transparent,
           elevation: 0,
