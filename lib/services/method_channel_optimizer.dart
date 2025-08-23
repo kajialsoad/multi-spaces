@@ -180,9 +180,9 @@ class MethodChannelOptimizer {
     
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        final result = await channel.invokeMethod<T>(method, arguments)
+        final result = await channel.invokeMethod(method, arguments)
             .timeout(timeout);
-        return result;
+        return result as T?;
       } catch (e) {
         lastException = e is Exception ? e : Exception(e.toString());
         
@@ -234,11 +234,11 @@ class MethodChannelOptimizer {
     
     for (final request in requests) {
       try {
-        final result = await channel.invokeMethod<T>(
+        final result = await channel.invokeMethod(
           request.method,
           request.arguments,
         ).timeout(timeout);
-        results.add(result);
+        results.add(result as T?);
       } catch (e) {
         results.add(null);
       }

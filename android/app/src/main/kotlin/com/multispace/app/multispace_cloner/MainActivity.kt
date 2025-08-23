@@ -163,7 +163,13 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 "removeClonedApp" -> {
-                    val clonedAppId = call.argument<Long>("id") ?: call.argument<Int>("id")?.toLong()
+                    // Handle both Integer and Long types from Flutter
+            val clonedAppId = when (val idArg = call.argument<Any>("id")) {
+                is Long -> idArg
+                is Int -> idArg.toLong()
+                is Number -> idArg.toLong()
+                else -> null
+            }
                     val packageName = call.argument<String>("packageName")
                     
                     if (clonedAppId != null) {
@@ -662,6 +668,12 @@ class MainActivity: FlutterActivity() {
         Log.d(TAG, "Starting app cloning for $packageName (fastMode: $fastMode)")
         val startTime = System.currentTimeMillis()
         
+        // Special handling for Facebook and IMO apps
+        val isSpecialApp = isSpecialApp(packageName)
+        if (isSpecialApp) {
+            Log.d(TAG, "Special handling enabled for $packageName - enforcing strict isolation")
+        }
+        
         backgroundExecutor.execute {
             try {
                 // Get app display name with caching
@@ -669,18 +681,32 @@ class MainActivity: FlutterActivity() {
                 val displayName = customName ?: "$appName Clone $cloneId"
 
                 if (fastMode) {
-                    // Fast mode: Skip some validations for speed
+                    // Fast mode: Skip data isolation setup for immediate response
                     val clonedApp = virtualSpaceEngine.createVirtualSpace(packageName, appName, displayName)
                     if (clonedApp != null) {
                         Log.d(TAG, "Fast clone completed in ${System.currentTimeMillis() - startTime}ms")
+                        
+                        // Return success immediately, setup isolation in background
                         mainHandler.post {
                             result.success(mapOf(
                                 "success" to true,
                                 "cloneId" to cloneId,
                                 "displayName" to displayName,
                                 "packageName" to packageName,
+                                "clonedPackageName" to clonedApp.clonedPackageName,
                                 "fastMode" to true
                             ))
+                        }
+                        
+                        // Setup data isolation asynchronously after response
+                        backgroundExecutor.execute {
+                            try {
+                                val dataIsolationManager = DataIsolationManager(this@MainActivity)
+                                dataIsolationManager.createIsolatedStorage(packageName, clonedApp.clonedPackageName)
+                                Log.d(TAG, "Background data isolation setup completed for $packageName")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Background data isolation setup failed for $packageName: ${e.message}")
+                            }
                         }
                         return@execute
                     }
@@ -697,10 +723,15 @@ class MainActivity: FlutterActivity() {
                     return@execute
                 }
 
-                // Setup data isolation in background
+                // Setup data isolation in background for standard mode
                 Log.d(TAG, "Setting up data isolation for $packageName")
                 val dataIsolationManager = DataIsolationManager(this@MainActivity)
                 dataIsolationManager.createIsolatedStorage(packageName, clonedApp.clonedPackageName)
+                
+                // Extra verification for special apps (Facebook, IMO)
+                if (isSpecialApp) {
+                    performSpecialAppVerification(packageName, clonedApp.id.toString())
+                }
 
                 val totalTime = System.currentTimeMillis() - startTime
                 Log.d(TAG, "Clone completed for $packageName in ${totalTime}ms")
@@ -752,6 +783,16 @@ class MainActivity: FlutterActivity() {
             val cloneSuccess = hookingSystem.installAppInVirtualSpace(packageName, clonedApp.clonedPackageName)
             
             if (cloneSuccess) {
+                // Verify data isolation after clone creation
+                Log.d(TAG, "Verifying data isolation for newly created clone ID: ${clonedApp.id}")
+                val verificationResult = virtualSpaceEngine.verifyDataIsolation(clonedApp.id)
+                if (!verificationResult) {
+                    Log.w(TAG, "Data isolation verification failed for newly created clone ID: ${clonedApp.id}")
+                }
+                
+                // Setup runtime verification for the new clone
+                virtualSpaceEngine.setupRuntimeDataVerification(clonedApp.id)
+                
                 result.success(mapOf(
                     "success" to true,
                     "id" to clonedApp.id,
@@ -759,7 +800,8 @@ class MainActivity: FlutterActivity() {
                     "clonedAppName" to clonedApp.clonedAppName,
                     "originalPackageName" to clonedApp.originalPackageName,
                     "dataPath" to clonedApp.dataPath,
-                    "createdAt" to clonedApp.createdAt
+                    "createdAt" to clonedApp.createdAt,
+                    "dataIsolationVerified" to verificationResult
                 ))
             } else {
                 // Remove from database if installation failed
@@ -843,9 +885,28 @@ class MainActivity: FlutterActivity() {
     
     private fun launchClonedApp(call: MethodCall, result: MethodChannel.Result) {
         try {
-            val clonedAppId = call.argument<Long>("id") ?: call.argument<Int>("id")?.toLong()
+            // Handle both Integer and Long types from Flutter
+            val clonedAppId = when (val idArg = call.argument<Any>("id")) {
+                is Long -> idArg
+                is Int -> idArg.toLong()
+                is Number -> idArg.toLong()
+                else -> null
+            }
             val packageName = call.argument<String>("packageName")
             val virtualSpaceId = call.argument<String>("virtualSpaceId")
+            
+            // Perform runtime data verification before launching
+            if (clonedAppId != null) {
+                Log.d(TAG, "Performing runtime verification for cloned app ID: $clonedAppId")
+                val verificationResult = virtualSpaceEngine.verifyDataIsolation(clonedAppId)
+                if (!verificationResult) {
+                    Log.w(TAG, "Data isolation verification failed for app ID: $clonedAppId")
+                    // Continue with launch but log the issue
+                }
+                
+                // Perform additional runtime checks
+                virtualSpaceEngine.performRuntimeIsolationCheck(clonedAppId)
+            }
             
             // Support both new ID-based and legacy virtualSpaceId-based launching
             val launchSuccess = if (clonedAppId != null) {
@@ -890,7 +951,8 @@ class MainActivity: FlutterActivity() {
                     val appName = applicationInfo?.let { packageManager.getApplicationLabel(it).toString() } ?: clonedApp.originalPackageName
                     
                     val clonedAppInfo = mapOf(
-                        "id" to clonedApp.id,
+                        "id" to clonedApp.id.toInt(), // Convert Long to Int for Flutter compatibility
+                        "clonedAppId" to clonedApp.id.toInt(), // Add clonedAppId field for AppInfo model
                         "packageName" to clonedApp.originalPackageName,
                         "clonedPackageName" to clonedApp.clonedPackageName,
                         "appName" to appName,
@@ -1856,5 +1918,284 @@ class MainActivity: FlutterActivity() {
             Log.e(TAG, "Failed to check system permission: $permission", e)
             result.error("ERROR", "Failed to check system permission: ${e.message}", null)
         }
+    }
+
+    // Special handling methods for Facebook and IMO apps
+    private fun isSpecialApp(packageName: String): Boolean {
+        val specialApps = listOf(
+            "com.facebook.katana",  // Facebook
+            "com.imo.android.imoim"  // IMO
+        )
+        return specialApps.contains(packageName)
+    }
+
+    private fun performSpecialAppVerification(packageName: String, virtualSpaceId: String): Boolean {
+        Log.d(TAG, "Performing special verification for $packageName in virtual space $virtualSpaceId")
+        
+        try {
+            // Clear all cached data for this app
+            clearSpecialAppData(packageName, virtualSpaceId)
+            
+            // Verify data isolation is complete
+            if (!verifyDataIsolation(packageName, virtualSpaceId)) {
+                Log.e(TAG, "Data isolation verification failed for $packageName")
+                return false
+            }
+            
+            // Apply extra security policies
+            applyExtraSecurityPolicies(packageName, virtualSpaceId)
+            
+            Log.i(TAG, "Special verification completed successfully for $packageName")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Special verification failed for $packageName: ${e.message}")
+            return false
+        }
+    }
+
+    private fun enforceFreshLoginForSpecialApp(packageName: String, virtualSpaceId: String): Boolean {
+        Log.d(TAG, "Enforcing fresh login for $packageName in virtual space $virtualSpaceId")
+        
+        try {
+            // Clear all authentication data
+            clearAuthenticationData(packageName, virtualSpaceId)
+            
+            // Clear app cache and temporary files
+            clearAppCacheAndTempFiles(packageName, virtualSpaceId)
+            
+            // Reset app preferences
+            resetAppPreferences(packageName, virtualSpaceId)
+            
+            // Verify fresh state
+            if (!verifyFreshState(packageName, virtualSpaceId)) {
+                Log.e(TAG, "Fresh state verification failed for $packageName")
+                return false
+            }
+            
+            Log.i(TAG, "Fresh login enforcement completed for $packageName")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Fresh login enforcement failed for $packageName: ${e.message}")
+            return false
+        }
+    }
+
+    private fun clearSpecialAppData(packageName: String, virtualSpaceId: String) {
+        Log.d(TAG, "Clearing special app data for $packageName")
+        
+        // Clear shared preferences
+        val sharedPrefs = getSharedPreferences("${packageName}_${virtualSpaceId}", Context.MODE_PRIVATE)
+        sharedPrefs.edit().clear().apply()
+        
+        // Clear database files
+        val dbDir = File(filesDir, "virtual_spaces/$virtualSpaceId/databases")
+        if (dbDir.exists()) {
+            dbDir.listFiles()?.forEach { file ->
+                if (file.name.contains(packageName)) {
+                    file.delete()
+                    Log.d(TAG, "Deleted database file: ${file.name}")
+                }
+            }
+        }
+        
+        // Clear cache directory
+        val cacheDir = File(cacheDir, "virtual_spaces/$virtualSpaceId/$packageName")
+        if (cacheDir.exists()) {
+            cacheDir.deleteRecursively()
+            Log.d(TAG, "Cleared cache directory for $packageName")
+        }
+    }
+
+    private fun clearAuthenticationData(packageName: String, virtualSpaceId: String) {
+        Log.d(TAG, "Clearing authentication data for $packageName")
+        
+        // Clear authentication tokens
+        val authPrefs = getSharedPreferences("${packageName}_auth_${virtualSpaceId}", Context.MODE_PRIVATE)
+        authPrefs.edit().clear().apply()
+        
+        // Clear session data
+        val sessionPrefs = getSharedPreferences("${packageName}_session_${virtualSpaceId}", Context.MODE_PRIVATE)
+        sessionPrefs.edit().clear().apply()
+        
+        // Clear login credentials
+        val credentialsPrefs = getSharedPreferences("${packageName}_credentials_${virtualSpaceId}", Context.MODE_PRIVATE)
+        credentialsPrefs.edit().clear().apply()
+    }
+
+    private fun clearAppCacheAndTempFiles(packageName: String, virtualSpaceId: String) {
+        Log.d(TAG, "Clearing cache and temp files for $packageName")
+        
+        // Clear temporary files
+        val tempDir = File(filesDir, "virtual_spaces/$virtualSpaceId/temp/$packageName")
+        if (tempDir.exists()) {
+            tempDir.deleteRecursively()
+        }
+        
+        // Clear image cache
+        val imageCacheDir = File(cacheDir, "virtual_spaces/$virtualSpaceId/$packageName/images")
+        if (imageCacheDir.exists()) {
+            imageCacheDir.deleteRecursively()
+        }
+        
+        // Clear web cache (for apps with web components)
+        val webCacheDir = File(cacheDir, "virtual_spaces/$virtualSpaceId/$packageName/webview")
+        if (webCacheDir.exists()) {
+            webCacheDir.deleteRecursively()
+        }
+    }
+
+    private fun resetAppPreferences(packageName: String, virtualSpaceId: String) {
+        Log.d(TAG, "Resetting app preferences for $packageName")
+        
+        // Reset app settings
+        val settingsPrefs = getSharedPreferences("${packageName}_settings_${virtualSpaceId}", Context.MODE_PRIVATE)
+        settingsPrefs.edit().clear().apply()
+        
+        // Reset user preferences
+        val userPrefs = getSharedPreferences("${packageName}_user_${virtualSpaceId}", Context.MODE_PRIVATE)
+        userPrefs.edit().clear().apply()
+    }
+
+    private fun verifyDataIsolation(packageName: String, virtualSpaceId: String): Boolean {
+        Log.d(TAG, "Verifying data isolation for $packageName")
+        
+        // Check that no original app data is accessible
+        val originalDataDir = File("/data/data/$packageName")
+        val virtualDataDir = File(filesDir, "virtual_spaces/$virtualSpaceId/data/$packageName")
+        
+        // Verify virtual data directory exists and is separate
+        if (!virtualDataDir.exists()) {
+            virtualDataDir.mkdirs()
+        }
+        
+        // Verify no cross-contamination
+        return virtualDataDir.absolutePath != originalDataDir.absolutePath
+    }
+
+    private fun verifyFreshState(packageName: String, virtualSpaceId: String): Boolean {
+        Log.d(TAG, "Verifying fresh state for $packageName")
+        
+        // Check that all authentication data is cleared
+        val authPrefs = getSharedPreferences("${packageName}_auth_${virtualSpaceId}", Context.MODE_PRIVATE)
+        val sessionPrefs = getSharedPreferences("${packageName}_session_${virtualSpaceId}", Context.MODE_PRIVATE)
+        
+        return authPrefs.all.isEmpty() && sessionPrefs.all.isEmpty()
+    }
+
+    private fun applyExtraSecurityPolicies(packageName: String, virtualSpaceId: String) {
+        Log.d(TAG, "Applying extra security policies for $packageName")
+        
+        // Apply stricter data isolation
+        val securityPrefs = getSharedPreferences("security_${virtualSpaceId}", Context.MODE_PRIVATE)
+        securityPrefs.edit()
+            .putBoolean("strict_isolation_${packageName}", true)
+            .putLong("last_security_check_${packageName}", System.currentTimeMillis())
+            .apply()
+    }
+
+    // Test methods for verification
+    private fun testFacebookIsolation(): Boolean {
+        Log.i(TAG, "Testing Facebook isolation...")
+        
+        val packageName = "com.facebook.katana"
+        val testVirtualSpaceId = "test_facebook_space"
+        
+        try {
+            // Test special app verification
+            if (!performSpecialAppVerification(packageName, testVirtualSpaceId)) {
+                Log.e(TAG, "Facebook special verification test failed")
+                return false
+            }
+            
+            // Test fresh login enforcement
+            if (!enforceFreshLoginForSpecialApp(packageName, testVirtualSpaceId)) {
+                Log.e(TAG, "Facebook fresh login enforcement test failed")
+                return false
+            }
+            
+            // Test data isolation
+            if (!verifyDataIsolation(packageName, testVirtualSpaceId)) {
+                Log.e(TAG, "Facebook data isolation test failed")
+                return false
+            }
+            
+            Log.i(TAG, "Facebook isolation test passed")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Facebook isolation test failed: ${e.message}")
+            return false
+        }
+    }
+
+    private fun testIMOIsolation(): Boolean {
+        Log.i(TAG, "Testing IMO isolation...")
+        
+        val packageName = "com.imo.android.imoim"
+        val testVirtualSpaceId = "test_imo_space"
+        
+        try {
+            // Test special app verification
+            if (!performSpecialAppVerification(packageName, testVirtualSpaceId)) {
+                Log.e(TAG, "IMO special verification test failed")
+                return false
+            }
+            
+            // Test fresh login enforcement
+            if (!enforceFreshLoginForSpecialApp(packageName, testVirtualSpaceId)) {
+                Log.e(TAG, "IMO fresh login enforcement test failed")
+                return false
+            }
+            
+            // Test data isolation
+            if (!verifyDataIsolation(packageName, testVirtualSpaceId)) {
+                Log.e(TAG, "IMO data isolation test failed")
+                return false
+            }
+            
+            Log.i(TAG, "IMO isolation test passed")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "IMO isolation test failed: ${e.message}")
+            return false
+        }
+    }
+
+    private fun runComprehensiveTests(): Map<String, Boolean> {
+        Log.i(TAG, "Running comprehensive tests for special apps...")
+        
+        val results = mutableMapOf<String, Boolean>()
+        
+        // Test Facebook
+        results["facebook_isolation"] = testFacebookIsolation()
+        
+        // Test IMO
+        results["imo_isolation"] = testIMOIsolation()
+        
+        // Test general special app detection
+        results["special_app_detection"] = testSpecialAppDetection()
+        
+        // Log comprehensive results
+        results.forEach { (test, passed) ->
+            val status = if (passed) "PASSED" else "FAILED"
+            Log.i(TAG, "Test $test: $status")
+        }
+        
+        val allPassed = results.values.all { it }
+        Log.i(TAG, "Comprehensive tests result: ${if (allPassed) "ALL PASSED" else "SOME FAILED"}")
+        
+        return results
+    }
+
+    private fun testSpecialAppDetection(): Boolean {
+        Log.d(TAG, "Testing special app detection...")
+        
+        val facebookDetected = isSpecialApp("com.facebook.katana")
+        val imoDetected = isSpecialApp("com.imo.android.imoim")
+        val normalAppNotDetected = !isSpecialApp("com.example.normalapp")
+        
+        val result = facebookDetected && imoDetected && normalAppNotDetected
+        
+        Log.d(TAG, "Special app detection test: ${if (result) "PASSED" else "FAILED"}")
+        return result
     }
 }

@@ -405,8 +405,8 @@ class AppService {
         }
 
         if (result != null && result['success'] == true) {
-          // Create isolated data directory asynchronously
-          DataIsolationService.createIsolatedDataDirectory(packageName, cloneId);
+          // Create isolated data directory synchronously to ensure proper isolation
+          await DataIsolationService.createIsolatedDataDirectory(packageName, cloneId);
 
           // Save clone info with custom name support
           await _addToClonedApps(packageName, cloneId, customName: customName);
@@ -602,8 +602,17 @@ class AppService {
         params['id'] = clonedAppId;
       }
       
-      final bool? result = await _invokeOptimized<bool>('launchClonedApp', params);
-      return result ?? false;
+      final dynamic result = await _invokeOptimized('launchClonedApp', params);
+      
+      // Handle different response types from native code
+      if (result is bool) {
+        return result;
+      } else if (result is Map) {
+        // Native code returns a Map with success info
+        return result['success'] == true;
+      } else {
+        return false;
+      }
     } catch (e) {
       print('Error launching cloned app: $e');
       return false;

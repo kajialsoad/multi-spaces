@@ -378,7 +378,7 @@ class _AppListScreenState extends State<AppListScreen> {
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  Navigator.of(context).pop(); // Go back to home screen
+                  Navigator.of(context).pop(successCount > 0); // Return success status
                 },
                 child: const Text('OK', style: TextStyle(color: Colors.orange)),
               ),
@@ -547,9 +547,9 @@ class _AppListScreenState extends State<AppListScreen> {
                 padding: const EdgeInsets.all(16),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 4,
-                  childAspectRatio: 0.8,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.75,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
                 ),
                 itemCount: filteredApps.length,
                 itemBuilder: (context, index) {
@@ -638,74 +638,88 @@ class _AppListScreenState extends State<AppListScreen> {
               ? const Color(0xFF6366F1).withOpacity(0.1)
               : Colors.transparent,
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: app.color,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: app.icon != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.memory(
-                            app.icon!,
-                            width: 60,
-                            height: 60,
-                            fit: BoxFit.cover,
+        child: Padding(
+          padding: const EdgeInsets.all(6.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 45,
+                      height: 45,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: app.color,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
                           ),
-                        )
-                      : const Icon(
-                          Icons.android,
-                          color: Colors.white,
-                          size: 30,
-                        ),
-                ),
-                if (isSelected)
-                  Positioned(
-                    top: -2,
-                    right: -2,
-                    child: Container(
-                      width: 20,
-                      height: 20,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF6366F1),
-                        shape: BoxShape.circle,
+                        ],
                       ),
-                      child: const Icon(
-                        Icons.check,
-                        color: Colors.white,
-                        size: 14,
-                      ),
+                      child: app.icon != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.memory(
+                                app.icon!,
+                                width: 45,
+                                height: 45,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.android,
+                              color: Colors.white,
+                              size: 22,
+                            ),
                     ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              app.appName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+                    if (isSelected)
+                      Positioned(
+                        top: -2,
+                        right: -2,
+                        child: Container(
+                          width: 16,
+                          height: 16,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF6366F1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.check,
+                            color: Colors.white,
+                            size: 10,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+              const SizedBox(height: 4),
+              Expanded(
+                flex: 2,
+                child: Container(
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  child: Text(
+                    app.appName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
