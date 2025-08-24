@@ -97,6 +97,14 @@ class MainActivity: FlutterActivity() {
         dataManager = DataManager.getInstance(this)
         virtualSpaceEngine = VirtualSpaceEngine.getInstance(this)
         
+        // 🔥 FORCE FRESH SIGN-IN for all existing clones on app startup
+        try {
+            val refreshSuccess = virtualSpaceEngine.forceRefreshSignInForAllClones()
+            Log.d(TAG, if (refreshSuccess) "✅ Fresh sign-in enforcement applied to all clones" else "⚠️ Some clones may not have fresh sign-in enforced")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to enforce fresh sign-in on startup", e)
+        }
+        
         // Initialize security channel
         securityChannel = SecurityChannel(this)
         securityChannel.initialize(flutterEngine)
