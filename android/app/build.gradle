@@ -1,6 +1,10 @@
 plugins {
     id "com.android.application"
+<<<<<<< HEAD
     id "org.jetbrains.kotlin.android"
+=======
+    id "kotlin-android"
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
 }
@@ -29,13 +33,22 @@ android {
     ndkVersion = "28.0.13004108"
 
     compileOptions {
+<<<<<<< HEAD
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+=======
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
         coreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
+<<<<<<< HEAD
         jvmTarget = JavaVersion.VERSION_17.toString()
+=======
+        jvmTarget = JavaVersion.VERSION_1_8
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
     }
 
     defaultConfig {
@@ -53,10 +66,13 @@ android {
         // Release build optimization
         vectorDrawables.useSupportLibrary = true
         resConfigs "en", "bn"
+<<<<<<< HEAD
 
         manifestPlaceholders = [
             applicationName: "com.multispace.app.multispace_cloner.MultiSpaceApplication"
         ]
+=======
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
     }
 
     signingConfigs {
@@ -114,8 +130,12 @@ android {
             crunchPngs = true
             
             // Performance optimization
+<<<<<<< HEAD
             // IMPORTANT: Do not override defaultConfig manifestPlaceholders here; append instead
             manifestPlaceholders += [
+=======
+            manifestPlaceholders = [
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
                 enableCrashlytics: "true"
             ]
         }
@@ -153,11 +173,14 @@ android {
         exclude 'META-INF/NOTICE.txt'
         exclude 'META-INF/INDEX.LIST'
         exclude 'META-INF/io.netty.versions.properties'
+<<<<<<< HEAD
         
         // Align with android:extractNativeLibs=false recommendation
         jniLibs {
             useLegacyPackaging false
         }
+=======
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
     }
 }
 

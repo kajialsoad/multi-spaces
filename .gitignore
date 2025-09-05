@@ -41,9 +41,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+<<<<<<< HEAD
 
 # Ignore problematic files
 android/**/*VirtualSpaceEngine.kt
 android/**/.gitignore
 android/**/...
 **/.../
+=======
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f

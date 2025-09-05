@@ -532,11 +532,19 @@ class ClonedAppsScreenState extends State<ClonedAppsScreen> with AutomaticKeepAl
               },
             ),
             ListTile(
+<<<<<<< HEAD
               leading: const Icon(Icons.copy, color: Colors.orange),
               title: const Text('Clone Again', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
                 _cloneAgain(app);
+=======
+              leading: const Icon(Icons.edit, color: Colors.orange),
+              title: const Text('Rename', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _renameApp(app);
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
               },
             ),
             ListTile(
@@ -556,6 +564,7 @@ class ClonedAppsScreenState extends State<ClonedAppsScreen> with AutomaticKeepAl
               },
             ),
             ListTile(
+<<<<<<< HEAD
               leading: const Icon(Icons.lock_reset, color: Colors.orange),
               title: const Text('Force Fresh Login (this clone)', style: TextStyle(color: Colors.white)),
               subtitle: const Text('Require sign-in again on next launch', style: TextStyle(color: Colors.white70, fontSize: 12)),
@@ -665,6 +674,13 @@ class ClonedAppsScreenState extends State<ClonedAppsScreen> with AutomaticKeepAl
                     ),
                   );
                 }
+=======
+              leading: const Icon(Icons.copy, color: Colors.orange),
+              title: const Text('Clone Again', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _cloneAgain(app);
+>>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
               },
             ),
             ListTile(
