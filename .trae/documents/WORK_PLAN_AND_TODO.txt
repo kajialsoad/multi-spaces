@@ -1,0 +1,97 @@
+শিরোনাম: MultiSpace Cloner – পূর্ণ বিশ্লেষণ, কাজের পরিকল্পনা (Work Plan), টুডু লিস্ট এবং এক্সিকিউশন স্ট্র্যাটেজি
+
+১) সমস্যার সারসংক্ষেপ (What’s broken)
+- Clone করা অ্যাপ লঞ্চের সময় আসল প্যাকেজটাই সোজা সিস্টেম কনটেক্সটে চালু হচ্ছে, ফলে আগের সেশন/কুকি/অ্যাকাউন্ট ডেটা বহাল থাকে
+- Host-সাইডে marker/clear লজিক আছে, কিন্তু টার্গেট অ্যাপের process/data scope-এ তা প্রয়োগ হচ্ছে না
+- Result: “Fresh Sign-in” এর দাবি পূরণ হচ্ছে না, কারণ real sandbox/container নেই
+
+২) রুট-কজ (Root Cause)
+- launchClonedApp → বাস্তবে packageManager.getLaunchIntentForPackage(...) দিয়ে আসল অ্যাপই চালু
+- DataIsolationManager/host-side sandbox path তৈরি হলেও টার্গেট অ্যাপ প্রসেস সেগুলো ব্যবহার করছে না
+- WebView cookie/WebStorage clear host-এ হচ্ছে, target process-এ নয়
+- AccountManager/SharedPreferences redirection বাস্তবে কার্যকর হয়নি
+
+৩) লক্ষ্য (Goals)
+- Per-clone data/session isolation নিশ্চিত করা
+- Clone লঞ্চের সময় নতুন Sign-in enforce করা (Incognito-like) – কিন্তু clone বন্ধ করলে তার নিজের ডেটা ভবিষ্যতের জন্য থেকে যাবে
+- স্ট্যাবল, লাইটওয়েট, Play-friendly সমাধান
+
+৪) স্কোপ (In-scope)
+- Virtualization/container approach নির্বাচন ও POC
+- Launch flow update করে virtual container-এ install+launch
+- Process-level data clear (WebView cookies + WebStorage, Account tokens) – fresh sign-in enforce
+- Global crash handler
+- E2E test: clone → launch → login screen verification
+
+৫) আউট-অফ-স্কোপ (Out-of-scope for now)
+- System-level work profile provisioning বা privileged policies
+- Root-only solution
+
+৬) প্রস্তাবিত ধাপভিত্তিক পরিকল্পনা (Phased Plan)
+- Phase 0: Quick Wins/Hardening
+  a) Global UncaughtExceptionHandler যোগ করা (Custom Application class)
+  b) WebView CookieManager + WebStorage deleteAllData() – host-side fallback API expose করা
+  c) MethodChannel-এ fallback clear endpoint, Flutter থেকে optional flag সহ কল করা
+
+- Phase 1: Virtualization Optioning ও নকশা
+  a) বাস্তব virtual/container approach shortlist করা (hooking-based framework vs user/profile-based isolation যেখানে সম্ভব)
+  b) Feasibility matrix: API compatibility, Play policy, maintenance cost, performance
+  c) Decision doc তৈরি
+
+- Phase 2: POC – Virtual Container Install + Launch
+  a) HookingSystem façade রেখে প্রকৃত container/hook ইন্টিগ্রেশন
+  b) “install in container” + “launch in container” working path
+  c) Intent metadata → process-level context propagate
+
+- Phase 3: Fresh Sign-in Enforcement (Target Process Scope)
+  a) Launch-এর আগেই per-clone sandbox path bind
+  b) Target process scope-এ WebView cookie + WebStorage purge
+  c) Account/Token invalidate (যদি সাপোর্টেড)
+
+- Phase 4: Stability + Observability
+  a) Crash handler → file log + last-crash metadata
+  b) Safe guards, timeouts
+
+- Phase 5: Testing & QA
+  a) E2E (Instrumentation/Espresso): first launch shows login
+  b) Regression: clone exit → relaunch keeps that clone’s data only
+  c) Performance sanity (startup latency, memory)
+
+৭) গ্রহণযোগ্যতার মানদণ্ড (Acceptance Criteria)
+- AC1: Clone প্রথমবার চালানোর সময় সবসময় login screen দেখা যাবে
+- AC2: Clone-এ লগইন করলে পরবর্তীবার ঐ clone-এই লগইন থাকা অবস্থা থাকবে, কিন্তু অন্য clone/real app থেকে পৃথক থাকবে
+- AC3: Fallback clear endpoint কল করলে WebView cookies + WebStorage সত্যিই খালি হবে
+- AC4: UncaughtException হলে global handler log ধরে এবং app safe state বজায় রাখে
+- AC5: E2E test সবুজ (pass)
+
+৮) প্রয়োজনীয় টেকনিক্যাল পরিবর্তন (Key Tech Changes)
+- AndroidManifest: application android:name placeholder → Custom Application class সেট করা (manifestPlaceholders দিয়ে)
+- New class: CustomApp : Application → onCreate-এ Thread.setDefaultUncaughtExceptionHandler
+- MainActivity/MethodChannel: clearWebViewDataGlobally() মেথড + optional pre-launch call
+- Virtualization POC: HookingSystem path-এ প্রকৃত container/hooking glue
+
+৯) ঝুঁকি ও বিকল্প (Risks & Mitigations)
+- Hooking/virtualization ফ্রেমওয়ার্কের স্থায়িত্ব → POC পার হলে phased rollout
+- WebView vendor/device variance → fallback clear + runtime checks
+- Play policy → শুধুমাত্র user-facing cloning/use-cases, কোনো policy-violating behavior নয়
+
+১০) টাইমলাইন (Indicative)
+- Phase 0 (Quick wins): 0.5 – 1 দিন
+- Phase 1 (Optioning): 1 – 2 দিন
+- Phase 2 (POC): 2 – 4 দিন
+- Phase 3 (Enforcement): 1 – 2 দিন
+- Phase 4–5 (Stability + Tests): 1 – 2 দিন
+
+১১) টুডু লিস্ট (সংক্ষিপ্ত)
+- [High] বাস্তব virtualization সমাধান shortlist + feasibility doc
+- [High] POC: container-এ install+launch এবং launch flow update
+- [High] E2E: fresh sign-in enforcement
+- [Medium] Fallback WebView clear API (CookieManager + WebStorage)
+- [Low] Global crash handler (Application class + logs)
+- [Medium] Manifest/Gradle placeholders সেটআপ
+
+১২) পরবর্তী কাজ (Next Actions)
+- Doc/Plan ফাইনাল হলেই: Phase 0 implement → তারপর Phase 1–2 শুরু
+- চাইলে আমি Phase 0 এখনই কোডে বসিয়ে দিচ্ছি (crash handler + fallback clear), তারপর virtualization POC
+
+নোট: এই পরিকল্পনা “Think Twice → Code Once” নীতিতে করা হয়েছে; প্রতিটি ধাপে টেস্ট/লগিং/সেফটি গার্ড প্রাধান্য পাবে।

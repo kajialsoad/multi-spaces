@@ -1,0 +1,234 @@
+{
+  "tech_stack": [
+    "Flutter",
+    "Dart",
+    "Kotlin",
+    "Android SDK",
+    "SQLite",
+    "MethodChannel",
+    "VirtualCore Framework",
+    "Java",
+    "Gradle",
+    "Android NDK"
+  ],
+  "features": [
+    {
+      "name": "App Cloning System",
+      "description": "Core functionality to clone installed Android apps into isolated virtual spaces with separate data storage",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/VirtualSpaceEngine.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/MainActivity.kt",
+        "lib/screens/app_list_screen.dart",
+        "lib/screens/cloned_apps_screen.dart"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "App Cloning API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/clone-app": {
+            "post": {
+              "summary": "Clone an installed app",
+              "parameters": [
+                {
+                  "name": "packageName",
+                  "in": "body",
+                  "required": true,
+                  "schema": {"type": "string"}
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Fresh Sign-in Authentication",
+      "description": "Forces fresh login for cloned apps by clearing authentication data and creating isolated login sessions",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/VirtualSpaceEngine.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/MainActivity.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/MultiSpaceApplication.kt"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "Fresh Sign-in API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/force-refresh-signin": {
+            "post": {
+              "summary": "Force fresh sign-in for all cloned apps",
+              "responses": {
+                "200": {"description": "Success"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Virtual Space Management",
+      "description": "Manages isolated virtual environments for each cloned app with separate data directories and processes",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/VirtualSpaceEngine.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/DataManager.kt"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "Virtual Space API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/create-virtual-space": {
+            "post": {
+              "summary": "Create new virtual space for app",
+              "parameters": [
+                {
+                  "name": "appId",
+                  "in": "body",
+                  "required": true,
+                  "schema": {"type": "string"}
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Database Management",
+      "description": "SQLite database operations for storing cloned app metadata, user preferences, and virtual space configurations",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/DatabaseHelper.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/DataManager.kt"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "Database API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/database/clone-info": {
+            "get": {
+              "summary": "Get cloned app information from database",
+              "responses": {
+                "200": {"description": "List of cloned apps"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Security & Anti-Tamper",
+      "description": "Security features including anti-tamper protection, hooking system prevention, and secure app isolation",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/SecurityChannel.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/AntiTamperProtection.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/HookingSystem.kt"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "Security API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/security/verify-integrity": {
+            "post": {
+              "summary": "Verify app integrity and detect tampering",
+              "responses": {
+                "200": {"description": "Integrity check result"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Performance Monitoring",
+      "description": "Real-time performance monitoring, memory management, and resource optimization for cloned apps",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/PerformanceChannel.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/PerformanceMonitor.kt",
+        "lib/screens/performance_settings_screen.dart"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "Performance API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/performance/metrics": {
+            "get": {
+              "summary": "Get performance metrics for cloned apps",
+              "responses": {
+                "200": {"description": "Performance data"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "App Management UI",
+      "description": "Flutter-based user interface for managing cloned apps, settings, and monitoring",
+      "files": [
+        "lib/main.dart",
+        "lib/screens/home_screen.dart",
+        "lib/screens/app_list_screen.dart",
+        "lib/screens/cloned_apps_screen.dart",
+        "lib/screens/settings_screen.dart"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "UI Management API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/ui/app-list": {
+            "get": {
+              "summary": "Get list of installed apps for UI display",
+              "responses": {
+                "200": {"description": "App list data"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Crash Prevention System",
+      "description": "Advanced crash detection and prevention mechanisms for stable app cloning operations",
+      "files": [
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/CrashHandler.kt",
+        "android/app/src/main/kotlin/com/multispace/app/multispace_cloner1/MainActivity.kt"
+      ],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "info": {
+          "title": "Crash Prevention API",
+          "version": "1.0.0"
+        },
+        "paths": {
+          "/crash/handle": {
+            "post": {
+              "summary": "Handle and prevent app crashes",
+              "responses": {
+                "200": {"description": "Crash handled successfully"}
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
