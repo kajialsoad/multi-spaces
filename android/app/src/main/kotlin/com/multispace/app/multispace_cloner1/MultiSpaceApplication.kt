@@ -79,3 +79,42 @@ class MultiSpaceApplication : Application() {
         private const val TAG = "MultiSpaceApp"
     }
 }
+
+// Top-level utility to deterministically clear global cookies and WebStorage with a short latch
+fun clearGlobalWebArtifactsSync(ctx: android.content.Context) {
+    try {
+        val mainLooper = android.os.Looper.getMainLooper()
+        val task = Runnable {
+            try {
+                val cm = android.webkit.CookieManager.getInstance()
+                val inner = java.util.concurrent.CountDownLatch(1)
+                cm.removeAllCookies { inner.countDown() }
+                try { inner.await(1500, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: Throwable) {}
+                cm.flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+                try {
+                    val wv = android.webkit.WebView(ctx.applicationContext)
+                    wv.clearCache(true)
+                    wv.clearFormData()
+                    wv.clearHistory()
+                    wv.clearSslPreferences()
+                    wv.destroy()
+                } catch (_: Throwable) {}
+                android.util.Log.d("MultiSpaceApp", "Global web artifacts cleared (cookies + WebStorage)")
+            } catch (innerEx: Throwable) {
+                android.util.Log.w("MultiSpaceApp", "Global web artifacts clear failed: ${innerEx.message}")
+            }
+        }
+        if (android.os.Looper.myLooper() == mainLooper) {
+            task.run()
+        } else {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            android.os.Handler(mainLooper).post {
+                try { task.run() } finally { latch.countDown() }
+            }
+            try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+        }
+    } catch (e: Throwable) {
+        android.util.Log.w("MultiSpaceApp", "Failed to schedule global web artifacts clear: ${e.message}")
+    }
+}

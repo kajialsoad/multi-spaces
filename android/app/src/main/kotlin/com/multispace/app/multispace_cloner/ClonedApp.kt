@@ -47,7 +47,10 @@ data class ClonedApp(
     val autoStart: Boolean = false,
     val backgroundRestricted: Boolean = false,
     val lastBackup: Long? = null,
-    val backupEnabled: Boolean = true
+    val backupEnabled: Boolean = true,
+    
+    // 🔥 CloneContextWrapper Integration
+    val cloneId: String? = null // Unique ID for CloneContextWrapper isolation
 ) {
     companion object {
         const val TABLE_NAME = "cloned_apps"

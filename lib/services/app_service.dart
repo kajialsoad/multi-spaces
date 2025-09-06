@@ -619,8 +619,7 @@ class AppService {
     }
   }
 
-  /// Check if app can be cloned
-<<<<<<< HEAD
+  /// Web artifacts and login/session management for clones
   static Future<bool> clearCloneWebArtifactsById(int clonedAppId) async {
     try {
       final res = await _invokeOptimized<bool>('clearCloneWebArtifactsById', {
@@ -655,8 +654,7 @@ class AppService {
     }
   }
 
-=======
->>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
+  /// Check if app can be cloned
   static Future<bool> canCloneApp(String packageName) async {
     try {
       final bool? result = await _invokeOptimized<bool>('canCloneApp', {
@@ -669,10 +667,7 @@ class AppService {
     }
   }
 
-<<<<<<< HEAD
-=======
   /// Get app usage statistics
->>>>>>> a43dceb5118ee3795a1fde804be0672228a2480f
   static Future<Map<String, dynamic>?> getAppUsageStats(String packageName) async {
     try {
       final Map<dynamic, dynamic>? result = await _invokeOptimized<Map<dynamic, dynamic>>('getAppUsageStats', {
