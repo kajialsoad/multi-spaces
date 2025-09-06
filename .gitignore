@@ -24,12 +24,47 @@ migrate_working_dir/
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
+# Flutter/Dart
 .dart_tool/
+.packages
+.pub-cache/
+build/
+**/build/
 .flutter-plugins
 .flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
+.melos_tool/
+
+# Android
+**/local.properties
+**/GeneratedPluginRegistrant.java
+**/captures/
+**/.cxx/
+**/gradle/
+**/gradlew
+**/gradlew.bat
+**/gradle-wrapper.jar
+**/app/debug/
+**/app/release/
+**/app/profile/
+
+# iOS
+**/Pods/
+**/*.xcworkspace/
+**/.symlinks/
+**/Flutter/Flutter.framework
+**/Flutter/Flutter.podspec
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testsprite temp
+testsprite_tests/tmp/
 
 # Symbolication related
 app.*.symbols
