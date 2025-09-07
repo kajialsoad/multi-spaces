@@ -27,12 +27,44 @@ class CloneContextWrapper(base: Context, private val cloneId: String) : ContextW
      * Creates and returns the root directory for this clone instance
      */
     private fun getCloneDir(): File {
-        val dir = File(baseContext.filesDir.parentFile, "clone_$cloneId")
-        if (!dir.exists()) {
-            val created = dir.mkdirs()
-            Log.d(TAG, "Created clone directory for $cloneId: $created")
+        return try {
+            // Try the safest way to resolve the app private data directory first
+            val baseFiles: File? = try {
+                baseContext.filesDir
+            } catch (e: Exception) {
+                Log.w(TAG, "filesDir unavailable while resolving clone dir for $cloneId", e)
+                null
+            }
+
+            val parent: File = when {
+                baseFiles?.parentFile != null -> baseFiles.parentFile
+                else -> {
+                    val cacheParent: File? = try {
+                        baseContext.cacheDir?.parentFile
+                    } catch (e: Exception) {
+                        Log.w(TAG, "cacheDir unavailable while resolving clone dir for $cloneId", e)
+                        null
+                    }
+                    cacheParent ?: File(baseContext.applicationInfo.dataDir)
+                }
+            }
+
+            val dir = File(parent, "clone_$cloneId")
+            if (!dir.exists()) {
+                val created = dir.mkdirs()
+                Log.d(TAG, "Created clone directory for $cloneId: $created at ${dir.absolutePath}")
+            }
+            dir
+        } catch (e: Exception) {
+            Log.e(TAG, "getCloneDir failed for $cloneId, falling back to app data dir", e)
+            // Final fallback: use application data dir directly to avoid crash
+            val fallbackParent = File(baseContext.applicationInfo.dataDir)
+            val dir = File(fallbackParent, "clone_$cloneId")
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+            dir
         }
-        return dir
     }
     
     /**

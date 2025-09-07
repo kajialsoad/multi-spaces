@@ -592,7 +592,12 @@ class MainActivity: FlutterActivity() {
                         try {
                             // Method 3: Get from PackageInfo
                             val packageInfo = packageManager.getPackageInfo(packageName, 0)
-                            icon = packageManager.getApplicationIcon(packageInfo.applicationInfo)
+                            packageInfo.applicationInfo?.let { appInfoNonNull ->
+                                icon = packageManager.getApplicationIcon(appInfoNonNull)
+                            } ?: run {
+                                // Fallback to package name if ApplicationInfo is null
+                                icon = packageManager.getApplicationIcon(packageName)
+                            }
                         } catch (e3: Exception) {
                             Log.w(TAG, "Method 3 failed for $packageName: ${e3.message}")
                             
@@ -602,9 +607,10 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 
-                if (icon != null) {
+                val safeIcon = icon
+                if (safeIcon != null) {
                     try {
-                        val iconBytes = drawableToByteArray(icon)
+                        val iconBytes = drawableToByteArray(safeIcon)
                         
                         // Validate byte array before encoding
                         if (iconBytes.isNotEmpty() && iconBytes.size < 1024 * 1024) { // Max 1MB
@@ -793,13 +799,13 @@ class MainActivity: FlutterActivity() {
             if (cloneSuccess) {
                 // Verify data isolation after clone creation
                 Log.d(TAG, "Verifying data isolation for newly created clone ID: ${clonedApp.id}")
-                val verificationResult = virtualSpaceEngine.verifyDataIsolation(clonedApp.id)
+                val verificationResult = virtualSpaceEngine.verifyDataIsolation(this, clonedApp.id)
                 if (!verificationResult) {
                     Log.w(TAG, "Data isolation verification failed for newly created clone ID: ${clonedApp.id}")
                 }
                 
                 // Setup runtime verification for the new clone
-                virtualSpaceEngine.setupRuntimeDataVerification(clonedApp.id)
+                virtualSpaceEngine.setupRuntimeDataVerification(clonedApp.id, this)
                 
                 result.success(mapOf(
                     "success" to true,
@@ -906,14 +912,14 @@ class MainActivity: FlutterActivity() {
             // Perform runtime data verification before launching
             if (clonedAppId != null) {
                 Log.d(TAG, "Performing runtime verification for cloned app ID: $clonedAppId")
-                val verificationResult = virtualSpaceEngine.verifyDataIsolation(clonedAppId)
+                val verificationResult = virtualSpaceEngine.verifyDataIsolation(this, clonedAppId)
                 if (!verificationResult) {
                     Log.w(TAG, "Data isolation verification failed for app ID: $clonedAppId")
                     // Continue with launch but log the issue
                 }
                 
                 // Perform additional runtime checks
-                virtualSpaceEngine.performRuntimeIsolationCheck(clonedAppId)
+                virtualSpaceEngine.performRuntimeIsolationCheck(this, clonedAppId)
             }
             
             // Support both new ID-based and legacy virtualSpaceId-based launching

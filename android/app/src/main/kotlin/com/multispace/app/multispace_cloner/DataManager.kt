@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import android.util.Log
 import java.io.File
 import java.security.MessageDigest
+import java.nio.charset.StandardCharsets
+import javax.crypto.SecretKey
 
 /**
  * Data Manager class for handling data isolation and SharedPreferences
@@ -29,7 +31,7 @@ class DataManager private constructor(private val context: Context) {
     }
     
     private val databaseHelper = DatabaseHelper.getInstance(context)
-    private val securityManager = SecurityManager.getInstance()
+    private val securityManager = SecurityManager.getInstance(context)
     
     /**
      * Get SharedPreferences for a specific cloned app
@@ -146,7 +148,8 @@ class DataManager private constructor(private val context: Context) {
             val accountPrefs = getAccountSpecificPreferences(clonedPackageName, accountId)
             val editor = accountPrefs.edit()
             accountData.forEach { (key, value) ->
-                editor.putString(key, securityManager.encryptString(value))
+                val enc = encryptStringSecure(value) ?: value
+                editor.putString(key, enc)
             }
             editor.putLong("created_at", System.currentTimeMillis())
             editor.apply()
@@ -246,7 +249,7 @@ class DataManager private constructor(private val context: Context) {
     fun storeAccountLoginData(clonedAppId: Long, accountName: String, loginData: Map<String, String>): Boolean {
         return try {
             val jsonData = loginData.entries.joinToString(",") { "\"${it.key}\":\"${it.value}\"" }
-            val encryptedData = securityManager.encryptString("{$jsonData}") ?: return false
+            val encryptedData = encryptStringSecure("{$jsonData}") ?: return false
             
             val account = UserAccount(
                 clonedAppId = clonedAppId,
@@ -277,7 +280,7 @@ class DataManager private constructor(private val context: Context) {
             val account = accounts.find { it.accountName == accountName && it.isActive }
             
             account?.loginData?.let { encryptedData ->
-                val decryptedData = securityManager.decryptString(encryptedData)
+                val decryptedData = decryptStringSecure(encryptedData)
                 decryptedData?.let { parseJsonToMap(it) }
             }
         } catch (e: Exception) {
@@ -506,20 +509,23 @@ class DataManager private constructor(private val context: Context) {
      * Helper method to convert List to JSON string
      */
     private fun listToJson(list: List<String>): String {
-        return try {
-            if (list.isEmpty()) {
-                "[]"
-            } else {
-                list.joinToString(",", "[", "]") { "\"$it\"" }
-            }
+        return list.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
+    }
+    
+    // Add keystore alias resolved via ObfuscationEngine
+    private val keystoreAlias: String by lazy {
+        try {
+            val constants = ObfuscationEngine.getObfuscatedConstants()
+            val deobf = ObfuscationEngine.runtimeDeobfuscate(constants)
+            deobf["KEYSTORE_ALIAS"] ?: "multispace_master_key"
         } catch (e: Exception) {
-            Log.e(TAG, "Error converting list to JSON", e)
-            "[]"
+            Log.w(TAG, "Failed to resolve keystore alias from ObfuscationEngine, using default", e)
+            "multispace_master_key"
         }
     }
-
+    
     /**
-     * Create completely isolated data directory (Google Incognito-like)
+     * Create isolated data directory (Google Incognito-like)
      * প্রতিটি clone এর জন্য সম্পূর্ণ আলাদা data directory
      */
     fun createCompletelyIsolatedDataDirectory(clonedPackageName: String): String {
@@ -527,11 +533,11 @@ class DataManager private constructor(private val context: Context) {
             val uniqueId = System.currentTimeMillis().toString()
             val randomId = (System.nanoTime() % 100000).toString()
             val isolatedDir = File(context.filesDir, "isolated_spaces/$clonedPackageName")
-
+    
             if (!isolatedDir.exists()) {
                 isolatedDir.mkdirs()
             }
-
+    
             // Create complete isolated environment
             val isolatedSubDirs = listOf(
                 "databases", "shared_prefs", "cache", "files", "temp",
@@ -539,14 +545,14 @@ class DataManager private constructor(private val context: Context) {
                 "webview", "keystore", "logs", "media", "downloads",
                 "sessions", "auth", "user_data"
             )
-
+    
             isolatedSubDirs.forEach { dirName ->
                 val subDir = File(isolatedDir, dirName)
                 if (!subDir.exists()) {
                     subDir.mkdirs()
                 }
             }
-
+    
             // Create isolation config
             val configFile = File(isolatedDir, "isolation_config.json")
             val configData = """
@@ -569,9 +575,9 @@ class DataManager private constructor(private val context: Context) {
                     }
                 }
             """.trimIndent()
-
+    
             configFile.writeText(configData)
-
+    
             Log.d(TAG, "Created completely isolated data directory: ${isolatedDir.absolutePath}")
             isolatedDir.absolutePath
         } catch (e: Exception) {
@@ -581,7 +587,7 @@ class DataManager private constructor(private val context: Context) {
             fallbackDir.absolutePath
         }
     }
-
+    
     /**
      * Get isolated SharedPreferences for complete separation
      * প্রতিটি clone এর জন্য সম্পূর্ণ আলাদা preferences
@@ -590,7 +596,7 @@ class DataManager private constructor(private val context: Context) {
         val isolatedPrefsName = "isolated_${hashPackageName(clonedPackageName)}_${System.currentTimeMillis()}"
         return context.getSharedPreferences(isolatedPrefsName, Context.MODE_PRIVATE)
     }
-
+    
     /**
      * Clear all isolated data for a specific clone
      * একটি clone এর সব data সম্পূর্ণ delete করে
@@ -601,17 +607,77 @@ class DataManager private constructor(private val context: Context) {
             if (isolatedDir.exists()) {
                 isolatedDir.deleteRecursively()
             }
-
+    
             // Clear isolated preferences
             val prefsName = "isolated_${hashPackageName(clonedPackageName)}"
             val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
             prefs.edit().clear().apply()
-
+    
             Log.d(TAG, "Cleared completely isolated data for: $clonedPackageName")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear completely isolated data", e)
             false
+        }
+    }
+
+    // Secure encryption helpers using Android Keystore + AES-GCM
+    private fun getOrCreateAppMasterKey(): SecretKey? {
+        // Try to fetch existing key; if missing, generate one in keystore
+        CryptoUtils.getKeyFromKeystore(keystoreAlias)?.let { return it }
+        return try {
+            // storeKeyInKeystore generates a new AES key under the alias
+            val ok = CryptoUtils.storeKeyInKeystore(keystoreAlias, CryptoUtils.generateAESKey())
+            if (!ok) {
+                Log.e(TAG, "Failed to create keystore key for alias=$keystoreAlias")
+                null
+            } else {
+                CryptoUtils.getKeyFromKeystore(keystoreAlias)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating or retrieving keystore key", e)
+            null
+        }
+    }
+
+    private fun encryptStringSecure(plainText: String, associatedData: String? = null): String? {
+        return try {
+            val key = getOrCreateAppMasterKey() ?: return null
+            val aad = associatedData?.toByteArray(StandardCharsets.UTF_8)
+            val result = CryptoUtils.encryptAES(plainText.toByteArray(StandardCharsets.UTF_8), key, aad)
+                ?: return null
+            val ivB64 = CryptoUtils.encodeBase64(result.iv).trim()
+            val dataB64 = CryptoUtils.encodeBase64(result.encryptedData).trim()
+            val aadB64 = result.associatedData?.let { CryptoUtils.encodeBase64(it).trim() }
+            if (aadB64 != null) {
+                "v1:$ivB64:$dataB64:$aadB64"
+            } else {
+                "v1:$ivB64:$dataB64"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "encryptStringSecure failed", e)
+            null
+        }
+    }
+
+    private fun decryptStringSecure(cipherText: String): String? {
+        return try {
+            // Expected formats:
+            // v1:<ivB64>:<dataB64> or v1:<ivB64>:<dataB64>:<aadB64>
+            val parts = cipherText.split(":")
+            if (parts.isEmpty() || parts[0] != "v1" || parts.size < 3) {
+                Log.w(TAG, "Unsupported ciphertext format")
+                return null
+            }
+            val iv = CryptoUtils.decodeBase64(parts[1])
+            val enc = CryptoUtils.decodeBase64(parts[2])
+            val aad = if (parts.size >= 4) CryptoUtils.decodeBase64(parts[3]) else null
+            val key = CryptoUtils.getKeyFromKeystore(keystoreAlias) ?: return null
+            val result = CryptoUtils.decryptAES(EncryptionResult(enc, iv, aad), key) ?: return null
+            String(result, StandardCharsets.UTF_8)
+        } catch (e: Exception) {
+            Log.e(TAG, "decryptStringSecure failed", e)
+            null
         }
     }
 }

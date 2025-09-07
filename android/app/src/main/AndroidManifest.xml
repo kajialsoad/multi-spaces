@@ -3,7 +3,7 @@
     package="com.multispace.app.multispace_cloner">
 
     <!-- Permissions for accessing installed apps and cloning functionality -->
-    <!-- Removed QUERY_ALL_PACKAGES to satisfy lint; rely on <queries> for visibility -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.GET_TASKS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />

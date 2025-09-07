@@ -7,7 +7,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 
 class PerformanceChannel(private val context: Context) {
-    private val channelName = "multispace/performance"
+    private val channelName = "multispace_cloner/performance"
     private lateinit var methodChannel: MethodChannel
     private lateinit var performanceManager: PerformanceManager
     private lateinit var memoryOptimizer: MemoryOptimizer

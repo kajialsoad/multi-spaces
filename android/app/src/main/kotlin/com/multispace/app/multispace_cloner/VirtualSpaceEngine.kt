@@ -103,7 +103,7 @@ class VirtualSpaceEngine(private val context: Context) {
                 allowContactsAccess = false,
                 encryptData = true,
                 auditAllAccess = true,
-                maxStorageSize = 2048 * 1024 * 1024, // 2GB
+                maxStorageSize = 2L * 1024 * 1024 * 1024, // 2GB - Using Long to prevent overflow
                 maxMemorySize = 512 * 1024 * 1024    // 512MB
             )
             
@@ -137,7 +137,13 @@ class VirtualSpaceEngine(private val context: Context) {
             }
 
             // Setup complete data isolation with CloneContextWrapper and sandbox integration
-            setupCompleteDataIsolation(clonedPackageName, packageName, uniqueId, cloneContext, dataManager)
+            setupCompleteDataIsolation(
+                clonedPackageName = clonedPackageName,
+                originalPackageName = packageName,
+                uniqueId = uniqueId,
+                sandbox = sandbox,
+                cloneContext = cloneContext
+            )
             
             // Create ClonedApp object with CloneContextWrapper and sandbox integration
             val clonedApp = ClonedApp(
@@ -165,7 +171,7 @@ class VirtualSpaceEngine(private val context: Context) {
             val clonedAppWithId = clonedApp.copy(id = appId)
 
             // Setup account isolation with sandbox security
-            setupAccountIsolation(clonedAppWithId, dataManager)
+            setupAccountIsolation(clonedAppWithId, sandbox)
 
             // Setup session isolation with sandbox security
             setupSessionIsolation(clonedAppWithId, sandbox)
@@ -185,7 +191,7 @@ class VirtualSpaceEngine(private val context: Context) {
                 clearExistingLoginData(clonedAppWithId, sandbox, cloneContext)
                 
                 // Step 2: Enforce fresh login requirement
-                enforceFreshLogin(clonedAppWithId, sandbox, cloneContext)
+                enforceFreshLogin(cloneContext, clonedAppWithId)
                 
                 // Step 3: Verify enforcement is working
                 verifyCompleteDataReset(clonedAppWithId, sandbox)
@@ -490,7 +496,8 @@ class VirtualSpaceEngine(private val context: Context) {
             
             if (intent != null) {
                 // Set up virtual environment context first
-                setupVirtualContext(clonedApp)
+                val cloneContext = CloneContextWrapper(context, clonedApp.cloneId ?: "default")
+                setupVirtualContext(clonedApp, cloneContext)
                 
                 // Configure intent for virtual space
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -537,10 +544,11 @@ class VirtualSpaceEngine(private val context: Context) {
             // Method 1: Try to launch using package info
             try {
                 val packageInfo = packageManager.getPackageInfo(clonedApp.originalPackageName, PackageManager.GET_ACTIVITIES)
-                if (packageInfo.activities != null && packageInfo.activities.isNotEmpty()) {
-                    val mainActivity = packageInfo.activities.find { activity ->
+                val activities = packageInfo.activities
+                if (activities != null && activities.isNotEmpty()) {
+                    val mainActivity = activities.find { activity ->
                         activity.exported && activity.enabled
-                    } ?: packageInfo.activities[0]
+                    } ?: activities[0]
                     
                     val intent = Intent()
                     intent.setClassName(clonedApp.originalPackageName, mainActivity.name)
@@ -692,13 +700,13 @@ class VirtualSpaceEngine(private val context: Context) {
             clearAuthenticationPreferences(clonedApp, cloneContext)
             
             // Clear all authentication files and tokens
-            clearAuthenticationFiles(clonedApp, cloneContext)
+            clearAuthenticationFiles(clonedApp)
             
             // Clear web view data (cookies, localStorage, etc.)
-            clearWebViewData(clonedApp, cloneContext)
+            clearWebViewData(clonedApp)
             
             // Clear app-specific authentication data
-            clearAppSpecificAuthData(clonedApp, cloneContext)
+            clearAppSpecificAuthData(clonedApp)
             
             // Clear system-level authentication data
             clearSystemAuthData(clonedApp)
@@ -707,7 +715,7 @@ class VirtualSpaceEngine(private val context: Context) {
             clearAccountsAndTokens(clonedApp)
             
             // Clear cache and temporary files using CloneContextWrapper
-            clearCacheAndTempFiles(clonedApp, cloneContext)
+            clearCacheAndTempFiles(clonedApp)
             
             // ULTRA-AGGRESSIVE: Clear ALL app data directories
             performUltraAggressiveDataClearing(clonedApp, sandbox)
@@ -801,7 +809,7 @@ class VirtualSpaceEngine(private val context: Context) {
         // Implementation for clearing auth files
     }
     
-    private fun clearWebViewData(clonedApp: ClonedApp) {
+    private fun clearWebViewDataStub(clonedApp: ClonedApp) {
         Log.d(TAG, "Clearing WebView data for ${clonedApp.clonedAppName}")
         // Implementation for clearing WebView data
     }
@@ -829,77 +837,6 @@ class VirtualSpaceEngine(private val context: Context) {
     private fun performUltraAggressiveDataClearing(clonedApp: ClonedApp, sandbox: SandboxManager.SandboxEnvironment) {
         Log.d(TAG, "Performing ultra-aggressive data clearing for ${clonedApp.clonedAppName}")
         // Implementation for ultra-aggressive data clearing
-    }
-    
-    /**
-     * 🏷️ Create fresh install markers for verification
-     */
-    private fun createFreshInstallMarkers(clonedApp: ClonedApp, sandbox: SandboxManager.SandboxEnvironment) {
-        try {
-            Log.d(TAG, "Creating fresh install markers for ${clonedApp.clonedAppName}")
-            
-            val dataDir = File(clonedApp.dataPath)
-            val requiredMarkers = listOf(
-                "FRESH_INSTALL.marker",
-                "FIRST_LAUNCH.marker", 
-                "DATA_ISOLATION.marker",
-                "COMPLETE_RESET.marker",
-                "REQUIRE_FRESH_LOGIN.marker"
-            )
-            
-            requiredMarkers.forEach { markerName ->
-                val markerFile = File(dataDir, markerName)
-                markerFile.writeText("${System.currentTimeMillis()}\n${clonedApp.clonedPackageName}\n${sandbox.sandboxId}")
-                Log.d(TAG, "✅ Created marker: $markerName")
-            }
-            
-            Log.d(TAG, "✅ Fresh install markers created for ${clonedApp.clonedAppName}")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to create fresh install markers for ${clonedApp.clonedAppName}", e)
-        }
-    }
-
-        try {
-            Log.d(TAG, "🔍 Checking for remaining auth data in ${clonedApp.clonedAppName}")
-            
-            val dataDir = File(clonedApp.dataPath)
-            
-            // Check for common auth files
-            val authFiles = listOf(
-                "shared_prefs",
-                "databases",
-                "cache",
-                "files"
-            )
-            
-            var foundAuthData = false
-            authFiles.forEach { dirName ->
-                val dir = File(dataDir, dirName)
-                if (dir.exists() && dir.listFiles()?.isNotEmpty() == true) {
-                    Log.w(TAG, "⚠️ Found data in $dirName directory - this may contain auth data")
-                    foundAuthData = true
-                    
-                    // Clear any found data to ensure fresh start
-                    try {
-                        dir.deleteRecursively()
-                        dir.mkdirs()
-                        Log.d(TAG, "✅ Cleared $dirName directory")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ Failed to clear $dirName directory", e)
-                    }
-                }
-            }
-            
-            if (!foundAuthData) {
-                Log.d(TAG, "✅ No remaining authentication data found - Fresh sign-in IS enforced")
-            } else {
-                Log.d(TAG, "✅ Cleared remaining authentication data - Fresh sign-in IS enforced")
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to check for remaining auth data", e)
-        }
     }
     
     /**
@@ -940,24 +877,6 @@ class VirtualSpaceEngine(private val context: Context) {
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to create fresh install markers", e)
-        }
-    }
-
-}
-                context.startActivity(intent)
-                
-                Log.d(TAG, "Opened app settings as fallback for: ${clonedApp.clonedAppName}")
-                return true
-            } catch (e: Exception) {
-                Log.w(TAG, "App settings fallback failed", e)
-            }
-            
-            Log.e(TAG, "All launch methods failed for: ${clonedApp.clonedAppName}")
-            return false
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Alternative launch methods failed", e)
-            return false
         }
     }
     
@@ -1032,7 +951,7 @@ class VirtualSpaceEngine(private val context: Context) {
             Log.d(TAG, "Setting up ULTRA-AGGRESSIVE DATA ISOLATION for ${clonedApp.clonedAppName} - Complete Fresh Install Simulation")
             
             // STEP 0: Perform complete app data reset (like uninstall/reinstall) with CloneContextWrapper
-            performCompleteAppDataReset(clonedApp, cloneContext)
+            performCompleteAppDataReset(context, clonedApp, cloneContext)
             
             // STEP 1: Force stop the original app to prevent data sharing
             forceStopOriginalApp(clonedApp.originalPackageName, context)
@@ -1044,7 +963,7 @@ class VirtualSpaceEngine(private val context: Context) {
             setupVirtualFileSystemRedirection(clonedApp, context)
             
             // STEP 4: Create fresh app data structure (like new installation)
-            createFreshAppDataStructure(clonedApp)
+            createFreshAppDataStructure(clonedApp, context)
             
             // STEP 5: Setup isolated SharedPreferences with fresh state
             setupIsolatedSharedPreferences(clonedApp)
@@ -1059,16 +978,16 @@ class VirtualSpaceEngine(private val context: Context) {
             setupIsolatedAccountManagement(clonedApp)
             
             // STEP 9: Perform additional aggressive data clearing
-            performAdditionalAggressiveDataClearing(clonedApp)
+            performAdditionalAggressiveDataClearing(context, clonedApp)
             
             // STEP 10: Setup runtime data verification
-            setupRuntimeDataVerification(clonedApp)
+            setupRuntimeDataVerification(clonedApp.id, context)
             
             // STEP 11: Verify data isolation is working
-            verifyDataIsolation(clonedApp)
+            verifyDataIsolation(context, clonedApp.id)
             
             // STEP 12: Final verification that clone is completely fresh
-            val isFreshInstall = verifyCompleteReset(clonedApp)
+            val isFreshInstall = verifyCompleteReset(context, clonedApp)
             if (isFreshInstall) {
                 Log.d(TAG, "ULTRA-AGGRESSIVE DATA ISOLATION setup completed successfully for ${clonedApp.clonedAppName} - Fresh Install Simulation Active")
             } else {
@@ -2168,7 +2087,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Setup complete data isolation (Google Incognito-like)
      */
-    private fun setupCompleteDataIsolation(clonedPackageName: String, originalPackage: String, uniqueId: String, context: Context, dataManager: DataIsolationManager) {
+    private fun setupCompleteDataIsolation(clonedPackageName: String, originalPackage: String, uniqueId: String, context: Context, dataManager: DataManager) {
         try {
             // Create isolated database
             val dbDir = java.io.File(context.filesDir, "isolated_spaces/$clonedPackageName/databases")
@@ -2221,7 +2140,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Setup account isolation for multiple accounts
      */
-    private fun setupAccountIsolation(clonedApp: ClonedApp, dataManager: DataIsolationManager) {
+    private fun setupAccountIsolation(clonedApp: ClonedApp, dataManager: DataManager) {
         try {
             val accountDir = File(clonedApp.dataPath, "accounts")
             if (!accountDir.exists()) {
@@ -2446,7 +2365,7 @@ class VirtualSpaceEngine(private val context: Context) {
             }
             
             // Update clone's data path to point to isolated environment
-            updateClonedAppDataPath(clonedApp.id, isolatedRoot.absolutePath)
+            updateClonedAppDataPath(context, clonedApp.id, isolatedRoot.absolutePath)
             
             // Save isolation mapping
             val isolationConfig = JSONObject().apply {
@@ -2589,7 +2508,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Create fresh app data structure like new installation
      */
-    private fun createFreshAppDataStructure(clonedApp: ClonedApp) {
+    private fun createFreshAppDataStructure(clonedApp: ClonedApp, context: Context) {
         try {
             Log.d(TAG, "Creating fresh app data structure for ${clonedApp.clonedAppName}")
             
@@ -2971,8 +2890,8 @@ class VirtualSpaceEngine(private val context: Context) {
         try {
             Log.d(TAG, "Setting up isolated account management for ${clonedApp.clonedAppName}")
             
-            val isolatedRoot = File(context.filesDir, "isolated_apps/${clonedApp.clonedPackageName}")
-            val accountsDir = File(isolatedRoot, "accounts")
+            val isolatedRoot = java.io.File(context.filesDir, "isolated_apps/${clonedApp.clonedPackageName}")
+            val accountsDir = java.io.File(isolatedRoot.absolutePath, "accounts")
             accountsDir.mkdirs()
             
             // Create account isolation configuration
@@ -2984,11 +2903,11 @@ class VirtualSpaceEngine(private val context: Context) {
                 put("require_fresh_login", true)
             }
             
-            val configFile = File(accountsDir, "account_config.json")
+            val configFile = java.io.File(accountsDir.absolutePath, "account_config.json")
             configFile.writeText(accountConfig.toString())
             
             // Create empty accounts file to prevent access to system accounts
-            val accountsFile = File(accountsDir, "accounts.json")
+            val accountsFile = java.io.File(accountsDir.absolutePath + "/accounts.json")
             accountsFile.writeText(JSONObject().apply {
                 put("accounts", JSONArray())
                 put("fresh_state", true)
@@ -3005,7 +2924,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Verify data isolation is working correctly
      */
-    fun verifyDataIsolation(clonedApp: ClonedApp): Boolean {
+    fun verifyDataIsolationLegacy(context: Context, clonedApp: ClonedApp): Boolean {
         return try {
             Log.d(TAG, "Verifying data isolation for ${clonedApp.clonedAppName}")
             
@@ -3059,11 +2978,11 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Verify data isolation by cloned app ID
      */
-    fun verifyDataIsolation(clonedAppId: Long): Boolean {
+    fun verifyDataIsolation(context: Context, clonedAppId: Long): Boolean {
         return try {
-            val clonedApp = getClonedAppById(clonedAppId)
+            val clonedApp = databaseHelper.getClonedAppById(clonedAppId)
             if (clonedApp != null) {
-                verifyDataIsolation(clonedApp)
+                verifyDataIsolationLegacy(context, clonedApp)
             } else {
                 Log.e(TAG, "Cloned app not found with ID: $clonedAppId")
                 false
@@ -3078,7 +2997,7 @@ class VirtualSpaceEngine(private val context: Context) {
      * Complete app data reset mechanism - simulates uninstall/reinstall behavior
      * This ensures the clone starts completely fresh like a newly installed app
      */
-    private fun performCompleteAppDataReset(clonedApp: ClonedApp, cloneContext: CloneContextWrapper) {
+    private fun performCompleteAppDataReset(context: Context, clonedApp: ClonedApp, cloneContext: CloneContextWrapper) {
         try {
             Log.d(TAG, "Performing complete app data reset for ${clonedApp.clonedAppName} - simulating fresh install")
             
@@ -3086,25 +3005,25 @@ class VirtualSpaceEngine(private val context: Context) {
             forceStopOriginalApp(clonedApp.originalPackageName, context)
             
             // Step 2: Clear ALL system-level caches and data
-            clearSystemLevelCaches(clonedApp)
+            clearSystemLevelCaches(context, clonedApp)
             
             // Step 3: Remove ALL existing app data directories
-            removeAllExistingAppData(clonedApp)
+            removeAllExistingAppData(context, clonedApp)
             
             // Step 4: Clear Android system services data
-            clearAndroidSystemServicesData(clonedApp)
+            clearAndroidSystemServicesData(context, clonedApp)
             
             // Step 5: Reset app permissions and settings
-            resetAppPermissionsAndSettings(clonedApp)
+            resetAppPermissionsAndSettings(context, clonedApp)
             
             // Step 6: Create completely fresh app environment with CloneContextWrapper
-            createFreshAppEnvironment(clonedApp, cloneContext)
+            createFreshAppEnvironment(context, clonedApp, cloneContext)
             
             // Step 7: Set fresh install markers
             setFreshInstallMarkers(clonedApp)
             
             // Step 8: Verify complete reset was successful
-            val resetSuccessful = verifyCompleteReset(clonedApp)
+            val resetSuccessful = verifyCompleteReset(context, clonedApp)
             
             if (resetSuccessful) {
                 Log.d(TAG, "Complete app data reset successful for ${clonedApp.clonedAppName}")
@@ -3120,7 +3039,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Clear system-level caches that might contain app data
      */
-    private fun clearSystemLevelCaches(clonedApp: ClonedApp) {
+    private fun clearSystemLevelCaches(context: Context, clonedApp: ClonedApp) {
         try {
             Log.d(TAG, "Clearing system-level caches for ${clonedApp.originalPackageName}")
             
@@ -3172,11 +3091,11 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Remove ALL existing app data directories completely
      */
-    private fun removeAllExistingAppData(clonedApp: ClonedApp) {
+    private fun removeAllExistingAppData(context: Context, clonedApp: ClonedApp) {
         try {
             Log.d(TAG, "Removing ALL existing app data for ${clonedApp.originalPackageName}")
             
-            val ctx = this.context
+            val ctx = context
             // Get all possible app data locations
             val appDataLocations = mutableListOf(
                 "/data/data/${clonedApp.originalPackageName}",
@@ -3187,13 +3106,13 @@ class VirtualSpaceEngine(private val context: Context) {
                 "/sdcard/Android/obb/${clonedApp.originalPackageName}"
             )
             // Append additional paths only when non-null to avoid nullable String entries
-            ctx.getExternalFilesDir(null)?.parent?.let { parent -> appDataLocations.add("$parent/${clonedApp.originalPackageName}") }
-            ctx.filesDir.parent?.let { parent -> appDataLocations.add("$parent/${clonedApp.originalPackageName}") }
-            ctx.cacheDir.parent?.let { parent -> appDataLocations.add("$parent/${clonedApp.originalPackageName}") }
+            ctx.getExternalFilesDir(null)?.parent?.let { parent -> appDataLocations.add("${parent}/${clonedApp.originalPackageName}") }
+            ctx.filesDir.parent?.let { parent -> appDataLocations.add("${parent}/${clonedApp.originalPackageName}") }
+            ctx.cacheDir.parent?.let { parent -> appDataLocations.add("${parent}/${clonedApp.originalPackageName}") }
             
-            appDataLocations.forEach { location: String ->
+            appDataLocations.forEach { location ->
                 try {
-                    val dataDir = File(location)
+                    val dataDir = java.io.File(location)
                     if (dataDir.exists()) {
                         dataDir.deleteRecursively()
                         Log.d(TAG, "Removed app data directory: $location")
@@ -3230,7 +3149,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Clear Android system services data related to the app
      */
-    private fun clearAndroidSystemServicesData(clonedApp: ClonedApp) {
+    private fun clearAndroidSystemServicesData(context: Context, clonedApp: ClonedApp) {
         try {
             Log.d(TAG, "Clearing Android system services data for ${clonedApp.originalPackageName}")
             
@@ -3298,7 +3217,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Reset app permissions and settings to default state
      */
-    private fun resetAppPermissionsAndSettings(clonedApp: ClonedApp) {
+    private fun resetAppPermissionsAndSettings(context: Context, clonedApp: ClonedApp) {
         try {
             Log.d(TAG, "Resetting app permissions and settings for ${clonedApp.originalPackageName}")
             
@@ -3323,7 +3242,7 @@ class VirtualSpaceEngine(private val context: Context) {
             // Clear app-specific settings files
             val settingsDir = File(context.filesDir, "settings")
             if (settingsDir.exists()) {
-                settingsDir.listFiles()?.forEach { file ->
+                settingsDir.listFiles()?.forEach { file: java.io.File ->
                     if (file.name.contains(clonedApp.originalPackageName) || file.name.contains(clonedApp.clonedPackageName)) {
                         file.delete()
                         Log.d(TAG, "Removed settings file: ${file.name}")
@@ -3339,7 +3258,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Create completely fresh app environment like a new installation
      */
-    private fun createFreshAppEnvironment(clonedApp: ClonedApp, cloneContext: CloneContextWrapper) {
+    private fun createFreshAppEnvironment(context: Context, clonedApp: ClonedApp, cloneContext: CloneContextWrapper) {
         try {
             Log.d(TAG, "Creating completely fresh app environment for ${clonedApp.clonedAppName}")
             
@@ -3380,7 +3299,7 @@ class VirtualSpaceEngine(private val context: Context) {
             configFile.writeText(freshConfig.toString())
             
             // Update cloned app data path in database to point to fresh environment
-            updateClonedAppDataPath(clonedApp.id, freshRoot.absolutePath)
+            updateClonedAppDataPath(context, clonedApp.id, freshRoot.absolutePath)
             
             // Create fresh SharedPreferences with clean state using CloneContextWrapper
             val freshPrefs = cloneContext.getSharedPreferences("${clonedApp.clonedPackageName}_fresh", Context.MODE_PRIVATE)
@@ -3437,11 +3356,11 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
       * Update cloned app data path in database
       */
-     private fun updateClonedAppDataPath(clonedAppId: Long, newDataPath: String) {
+     private fun updateClonedAppDataPath(context: Context, clonedAppId: Long, newDataPath: String) {
          try {
              Log.d(TAG, "Updating data path for cloned app ID: $clonedAppId to: $newDataPath")
              
-             val db = databaseHelper.writableDatabase
+             val db = DatabaseHelper.getInstance(context).writableDatabase
              val values = ContentValues().apply {
                  put(ClonedApp.COLUMN_DATA_PATH, newDataPath)
              }
@@ -3467,7 +3386,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Verify that complete reset was successful
       */
-     private fun verifyCompleteReset(clonedApp: ClonedApp): Boolean {
+     private fun verifyCompleteReset(context: Context, clonedApp: ClonedApp): Boolean {
         return try {
             Log.d(TAG, "Verifying complete reset for ${clonedApp.clonedAppName}")
             
@@ -3539,30 +3458,30 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Perform additional aggressive data clearing for stubborn apps
       */
-     private fun performAdditionalAggressiveDataClearing(clonedApp: ClonedApp) {
+     private fun performAdditionalAggressiveDataClearing(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Performing additional aggressive data clearing for ${clonedApp.clonedAppName}")
              
              // Clear all possible login token storage locations
-             clearAllLoginTokens(clonedApp)
+             clearAllLoginTokens(context, clonedApp)
              
              // Clear all possible session storage
-             clearAllSessionStorage(clonedApp)
+             clearAllSessionStorage(context, clonedApp)
              
              // Clear all possible authentication caches
-             clearAllAuthenticationCaches(clonedApp)
+             clearAllAuthenticationCaches(context, clonedApp)
              
              // Clear all possible social media specific data
-             clearSocialMediaSpecificData(clonedApp)
+             clearSocialMediaSpecificData(context, clonedApp)
              
              // Clear all possible browser/webview persistent data
-             clearAllBrowserPersistentData(clonedApp)
+             clearAllBrowserPersistentData(context, clonedApp)
              
              // Clear all possible keystore and secure storage
-             clearAllSecureStorage(clonedApp)
+             clearAllSecureStorage(context, clonedApp)
              
              // Force clear system-level app associations
-             clearSystemLevelAppAssociations(clonedApp)
+             clearSystemLevelAppAssociations(context, clonedApp)
              
              Log.d(TAG, "Additional aggressive data clearing completed for ${clonedApp.clonedAppName}")
              
@@ -3574,7 +3493,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all possible login tokens from various storage locations
       */
-     private fun clearAllLoginTokens(clonedApp: ClonedApp) {
+     private fun clearAllLoginTokens(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all login tokens for ${clonedApp.originalPackageName}")
              
@@ -3656,7 +3575,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all session storage locations
       */
-     private fun clearAllSessionStorageLegacy(clonedApp: ClonedApp) {
+     private fun clearAllSessionStorageLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all session storage for ${clonedApp.originalPackageName}")
              
@@ -3693,7 +3612,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear authentication caches
       */
-     private fun clearAllAuthenticationCachesLegacy(clonedApp: ClonedApp) {
+     private fun clearAllAuthenticationCachesLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing authentication caches for ${clonedApp.originalPackageName}")
              
@@ -3725,21 +3644,21 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear social media specific data
       */
-     private fun clearSocialMediaSpecificDataLegacy(clonedApp: ClonedApp) {
+     private fun clearSocialMediaSpecificDataLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing social media specific data for ${clonedApp.originalPackageName}")
              
              // Clear Facebook specific data
-             clearFacebookSpecificData(clonedApp)
+             clearFacebookSpecificData(context, clonedApp)
              
              // Clear Instagram specific data
-             clearInstagramSpecificData(clonedApp)
+             clearInstagramSpecificData(context, clonedApp)
              
              // Clear WhatsApp specific data
-             clearWhatsAppSpecificData(clonedApp)
+             clearWhatsAppSpecificData(context, clonedApp)
              
              // Clear Telegram specific data
-             clearTelegramSpecificData(clonedApp)
+             clearTelegramSpecificData(context, clonedApp)
              
          } catch (e: Exception) {
              Log.e(TAG, "Error clearing social media specific data", e)
@@ -3749,7 +3668,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear Facebook specific persistent data (Legacy)
       */
-     private fun clearFacebookSpecificDataLegacy(clonedApp: ClonedApp) {
+     private fun clearFacebookSpecificDataLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing Facebook specific data for ${clonedApp.originalPackageName}")
              
@@ -3783,7 +3702,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear Instagram specific persistent data
       */
-     private fun clearInstagramSpecificData(clonedApp: ClonedApp) {
+     private fun clearInstagramSpecificData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing Instagram specific data for ${clonedApp.originalPackageName}")
              
@@ -3817,7 +3736,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear WhatsApp specific persistent data
       */
-     private fun clearWhatsAppSpecificDataLegacy(clonedApp: ClonedApp) {
+     private fun clearWhatsAppSpecificDataLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing WhatsApp specific data for ${clonedApp.originalPackageName}")
              
@@ -3851,7 +3770,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear Telegram specific persistent data
       */
-     private fun clearTelegramSpecificDataLegacy(clonedApp: ClonedApp) {
+     private fun clearTelegramSpecificDataLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing Telegram specific data for ${clonedApp.originalPackageName}")
              
@@ -3885,7 +3804,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all browser and webview persistent data
       */
-     private fun clearAllBrowserPersistentDataLegacy(clonedApp: ClonedApp) {
+     private fun clearAllBrowserPersistentDataLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all browser persistent data for ${clonedApp.originalPackageName}")
              
@@ -3929,7 +3848,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all secure storage including keystore
       */
-     private fun clearAllSecureStorageLegacy(clonedApp: ClonedApp) {
+     private fun clearAllSecureStorageLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all secure storage for ${clonedApp.originalPackageName}")
              
@@ -3975,7 +3894,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear system-level app associations
       */
-     private fun clearSystemLevelAppAssociationsLegacy(clonedApp: ClonedApp) {
+     private fun clearSystemLevelAppAssociationsLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing system-level app associations for ${clonedApp.originalPackageName}")
              
@@ -4010,7 +3929,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Setup runtime data verification to ensure isolation is maintained
       */
-     fun setupRuntimeDataVerificationLegacy(clonedApp: ClonedApp) {
+     fun setupRuntimeDataVerificationLegacy(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Setting up runtime data verification for ${clonedApp.clonedAppName}")
              
@@ -4034,12 +3953,11 @@ class VirtualSpaceEngine(private val context: Context) {
              
              // Set up verification markers in SharedPreferences
              val verificationPrefs = context.getSharedPreferences("${clonedApp.clonedPackageName}_verification", Context.MODE_PRIVATE)
-             verificationPrefs.edit().apply {
-                 putBoolean("runtime_verification_active", true)
-                 putLong("verification_start_time", System.currentTimeMillis())
-                 putString("verification_config_path", verificationFile.absolutePath)
-                 apply()
-             }
+             val editor = verificationPrefs.edit()
+             editor.putBoolean("runtime_verification_active", true)
+             editor.putLong("verification_start_time", System.currentTimeMillis())
+             editor.putString("verification_config_path", verificationFile.absolutePath)
+             editor.apply()
              
              Log.d(TAG, "Runtime data verification setup completed for ${clonedApp.clonedAppName}")
              
@@ -4051,7 +3969,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Setup security monitoring for enhanced protection
       */
-     private fun setupSecurityMonitoringLegacy(clonedApp: ClonedApp, sandbox: SandboxManager.SandboxEnvironment) {
+     private fun setupSecurityMonitoringLegacy(context: Context, clonedApp: ClonedApp, sandbox: SandboxManager.SandboxEnvironment) {
          try {
              Log.d(TAG, "Setting up security monitoring for ${clonedApp.clonedAppName}")
              
@@ -4073,7 +3991,8 @@ class VirtualSpaceEngine(private val context: Context) {
              securityFile.writeText(securityConfig.toString())
              
              // Enable security monitoring in sandbox
-             sandboxManager.enableSecurityMonitoring(sandbox.sandboxId, true)
+             // TODO: Implement enableSecurityMonitoring method in SandboxManager
+             // SandboxManager.getInstance(context).enableSecurityMonitoring(sandbox.sandboxId, true)
              
              Log.d(TAG, "Security monitoring setup completed for ${clonedApp.clonedAppName}")
              
@@ -4085,21 +4004,21 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Get virtual space info by ID
       */
-     fun getVirtualSpaceInfo(clonedAppId: Long): Map<String, Any>? {
+     fun getVirtualSpaceInfo(context: Context, clonedAppId: Long): Map<String, Any>? {
          return try {
-             val clonedApp = getClonedAppById(clonedAppId)
+             val clonedApp = DatabaseHelper.getInstance(context).getClonedAppById(clonedAppId)
              if (clonedApp != null) {
                  mapOf(
                      "id" to clonedApp.id,
-                     "appName" to clonedApp.clonedAppName,
-                     "packageName" to clonedApp.clonedPackageName,
-                     "originalPackage" to clonedApp.originalPackageName,
-                     "dataPath" to clonedApp.dataPath,
+                     "appName" to (clonedApp.clonedAppName ?: ""),
+                     "packageName" to (clonedApp.clonedPackageName ?: ""),
+                     "originalPackage" to (clonedApp.originalPackageName ?: ""),
+                     "dataPath" to (clonedApp.dataPath ?: ""),
                      "isActive" to clonedApp.isActive,
-                     "createdAt" to clonedApp.createdAt,
-                     "lastUsed" to clonedApp.lastUsed,
-                     "sandboxId" to clonedApp.sandboxId,
-                     "securityLevel" to clonedApp.securityLevel
+                     "createdAt" to (clonedApp.createdAt ?: 0L),
+                     "lastUsed" to (clonedApp.lastUsed ?: 0L),
+                     "sandboxId" to (clonedApp.sandboxId ?: ""),
+                     "securityLevel" to (clonedApp.securityLevel ?: "")
                  )
              } else null
          } catch (e: Exception) {
@@ -4112,7 +4031,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all session storage including temporary files
       */
-     private fun clearAllSessionStorage(clonedApp: ClonedApp) {
+     private fun clearAllSessionStorage(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all session storage for ${clonedApp.originalPackageName}")
              
@@ -4167,7 +4086,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all authentication caches
       */
-     private fun clearAllAuthenticationCaches(clonedApp: ClonedApp) {
+     private fun clearAllAuthenticationCaches(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all authentication caches for ${clonedApp.originalPackageName}")
              
@@ -4202,7 +4121,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear social media specific data that tends to persist
       */
-     private fun clearSocialMediaSpecificData(clonedApp: ClonedApp) {
+     private fun clearSocialMediaSpecificData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing social media specific data for ${clonedApp.originalPackageName}")
              
@@ -4210,22 +4129,22 @@ class VirtualSpaceEngine(private val context: Context) {
              if (clonedApp.originalPackageName.contains("facebook") || 
                  clonedApp.originalPackageName.contains("instagram") ||
                  clonedApp.originalPackageName.contains("messenger")) {
-                 clearFacebookSpecificData(clonedApp)
+                 clearFacebookSpecificData(context, clonedApp)
              }
              
              // IMO specific data
              if (clonedApp.originalPackageName.contains("imo")) {
-                 clearIMOSpecificData(clonedApp)
+                 clearIMOSpecificData(context, clonedApp)
              }
              
              // WhatsApp specific data
              if (clonedApp.originalPackageName.contains("whatsapp")) {
-                 clearWhatsAppSpecificData(clonedApp)
+                 clearWhatsAppSpecificData(context, clonedApp)
              }
              
              // Telegram specific data
              if (clonedApp.originalPackageName.contains("telegram")) {
-                 clearTelegramSpecificData(clonedApp)
+                 clearTelegramSpecificData(context, clonedApp)
              }
              
          } catch (e: Exception) {
@@ -4236,7 +4155,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear Facebook/Meta specific persistent data
       */
-     private fun clearFacebookSpecificData(clonedApp: ClonedApp) {
+     private fun clearFacebookSpecificData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing Facebook specific data for ${clonedApp.originalPackageName}")
              
@@ -4277,7 +4196,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear IMO specific persistent data
       */
-     private fun clearIMOSpecificData(clonedApp: ClonedApp) {
+     private fun clearIMOSpecificData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing IMO specific data for ${clonedApp.originalPackageName}")
              
@@ -4312,7 +4231,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear WhatsApp specific persistent data
       */
-     private fun clearWhatsAppSpecificData(clonedApp: ClonedApp) {
+     private fun clearWhatsAppSpecificData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing WhatsApp specific data for ${clonedApp.originalPackageName}")
              
@@ -4346,7 +4265,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear Telegram specific persistent data
       */
-     private fun clearTelegramSpecificData(clonedApp: ClonedApp) {
+     private fun clearTelegramSpecificData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing Telegram specific data for ${clonedApp.originalPackageName}")
              
@@ -4380,7 +4299,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all browser and webview persistent data
       */
-     private fun clearAllBrowserPersistentData(clonedApp: ClonedApp) {
+     private fun clearAllBrowserPersistentData(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all browser persistent data for ${clonedApp.originalPackageName}")
              
@@ -4424,7 +4343,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear all secure storage including keystore
       */
-     private fun clearAllSecureStorage(clonedApp: ClonedApp) {
+     private fun clearAllSecureStorage(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing all secure storage for ${clonedApp.originalPackageName}")
              
@@ -4470,7 +4389,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Clear system-level app associations
       */
-     private fun clearSystemLevelAppAssociations(clonedApp: ClonedApp) {
+     private fun clearSystemLevelAppAssociations(context: Context, clonedApp: ClonedApp) {
          try {
              Log.d(TAG, "Clearing system-level app associations for ${clonedApp.originalPackageName}")
              
@@ -4505,7 +4424,7 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Setup runtime data verification to ensure isolation is maintained
       */
-     fun setupRuntimeDataVerification(clonedApp: ClonedApp) {
+     fun setupRuntimeDataVerificationLegacy2(clonedApp: ClonedApp, context: Context) {
          try {
              Log.d(TAG, "Setting up runtime data verification for ${clonedApp.clonedAppName}")
              
@@ -4549,11 +4468,11 @@ class VirtualSpaceEngine(private val context: Context) {
      /**
       * Setup runtime data verification by cloned app ID
       */
-     fun setupRuntimeDataVerification(clonedAppId: Long) {
+     fun setupRuntimeDataVerification(clonedAppId: Long, context: Context) {
          try {
-             val clonedApp = getClonedAppById(clonedAppId)
+             val clonedApp = DatabaseHelper.getInstance(context).getClonedAppById(clonedAppId)
              if (clonedApp != null) {
-                 setupRuntimeDataVerification(clonedApp)
+                 setupRuntimeDataVerificationLegacy2(clonedApp, context)
              } else {
                  Log.e(TAG, "Cloned app not found with ID: $clonedAppId")
              }
@@ -4565,18 +4484,18 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Perform runtime checks to ensure clone is properly isolated
      */
-    fun performRuntimeIsolationCheck(clonedApp: ClonedApp): Map<String, Any> {
+    fun performRuntimeIsolationCheckLegacy(context: Context, clonedApp: ClonedApp): Map<String, Any> {
         val results = mutableMapOf<String, Any>()
         
         try {
             Log.d(TAG, "Performing runtime isolation check for ${clonedApp.clonedAppName}")
             
             // Check data isolation
-            val dataIsolated = verifyDataIsolation(clonedApp)
+            val dataIsolated = verifyDataIsolation(context, clonedApp.id)
             results["data_isolated"] = dataIsolated
             
             // Check process isolation
-            val processIsolated = verifyProcessIsolation(clonedApp)
+            val processIsolated = verifyProcessIsolation(context, clonedApp)
             results["process_isolated"] = processIsolated
             
             // Check storage isolation
@@ -4584,7 +4503,7 @@ class VirtualSpaceEngine(private val context: Context) {
             results["storage_isolated"] = storageIsolated
             
             // Check login state isolation
-            val loginIsolated = verifyLoginStateIsolation(clonedApp)
+            val loginIsolated = verifyLoginStateIsolation(context, clonedApp)
             results["login_isolated"] = loginIsolated
             
             // Overall isolation status
@@ -4610,11 +4529,11 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Perform runtime isolation check by cloned app ID
      */
-    fun performRuntimeIsolationCheck(clonedAppId: Long): Map<String, Any> {
+    fun performRuntimeIsolationCheck(context: Context, clonedAppId: Long): Map<String, Any> {
         return try {
-             val clonedApp = getClonedAppById(clonedAppId)
+             val clonedApp = DatabaseHelper.getInstance(context).getClonedAppById(clonedAppId)
              if (clonedApp != null) {
-                 performRuntimeIsolationCheck(clonedApp)
+                 performRuntimeIsolationCheckLegacy(context, clonedApp)
             } else {
                 Log.e(TAG, "Cloned app not found with ID: $clonedAppId")
                 mapOf(
@@ -4634,7 +4553,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Verify process isolation
      */
-    private fun verifyProcessIsolation(clonedApp: ClonedApp): Boolean {
+    private fun verifyProcessIsolation(context: Context, clonedApp: ClonedApp): Boolean {
         try {
             val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val runningProcesses = activityManager.runningAppProcesses ?: return true
@@ -4703,7 +4622,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Verify login state isolation
      */
-    private fun verifyLoginStateIsolation(clonedApp: ClonedApp): Boolean {
+    private fun verifyLoginStateIsolation(context: Context, clonedApp: ClonedApp): Boolean {
         try {
             val isolatedRoot = File(clonedApp.dataPath)
             
@@ -4800,7 +4719,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Start real-time monitoring for data access
      */
-    fun startRealTimeMonitoring(clonedApp: ClonedApp) {
+    fun startRealTimeMonitoring(context: Context, clonedApp: ClonedApp) {
         try {
             Log.d(TAG, "Starting real-time monitoring for ${clonedApp.clonedAppName}")
             
@@ -4841,7 +4760,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Block access to original app data
      */
-    fun blockOriginalDataAccess(clonedApp: ClonedApp): Boolean {
+    fun blockOriginalDataAccess(context: Context, clonedApp: ClonedApp): Boolean {
         try {
             Log.d(TAG, "Blocking original data access for ${clonedApp.clonedAppName}")
             
@@ -4878,7 +4797,7 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Enforce fresh login requirement
      */
-    fun enforceFreshLogin(clonedApp: ClonedApp) {
+    fun enforceFreshLogin(context: Context, clonedApp: ClonedApp) {
         try {
             Log.d(TAG, "Enforcing fresh login for ${clonedApp.clonedAppName}")
             
@@ -4913,7 +4832,7 @@ class VirtualSpaceEngine(private val context: Context) {
             
             // Update fresh login preferences
             val freshLoginPrefs = context.getSharedPreferences("${clonedApp.clonedPackageName}_fresh_login", Context.MODE_PRIVATE)
-            freshLoginPrefs.edit().apply {
+            with(freshLoginPrefs.edit()) {
                 putBoolean("fresh_login_enforced", true)
                 putBoolean("must_login_fresh", true)
                 putBoolean("clear_existing_sessions", true)
@@ -4932,18 +4851,18 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Perform comprehensive runtime verification
      */
-    fun performComprehensiveRuntimeVerification(clonedApp: ClonedApp): Map<String, Any> {
+    fun performComprehensiveRuntimeVerification(clonedApp: ClonedApp, context: Context): Map<String, Any> {
         val results = mutableMapOf<String, Any>()
         
         try {
             Log.d(TAG, "Performing comprehensive runtime verification for ${clonedApp.clonedAppName}")
             
             // Data isolation verification
-            val dataIsolated = verifyDataIsolation(clonedApp)
+            val dataIsolated = verifyDataIsolation(context, clonedApp.id)
             results["data_isolated"] = dataIsolated
             
             // Process isolation verification
-            val processIsolated = verifyProcessIsolation(clonedApp)
+            val processIsolated = verifyProcessIsolation(context, clonedApp)
             results["process_isolated"] = processIsolated
             
             // Storage isolation verification
@@ -4951,11 +4870,11 @@ class VirtualSpaceEngine(private val context: Context) {
             results["storage_isolated"] = storageIsolated
             
             // Login state isolation verification
-            val loginIsolated = verifyLoginStateIsolation(clonedApp)
+            val loginIsolated = verifyLoginStateIsolation(context, clonedApp)
             results["login_isolated"] = loginIsolated
             
             // Fresh install verification
-            val freshInstallVerified = verifyCompleteReset(clonedApp)
+            val freshInstallVerified = verifyCompleteReset(context, clonedApp)
             results["fresh_install_verified"] = freshInstallVerified
             
             // Real-time monitoring status
@@ -5004,22 +4923,22 @@ class VirtualSpaceEngine(private val context: Context) {
     /**
      * Auto-fix verification violations
      */
-    fun autoFixVerificationViolations(clonedApp: ClonedApp): Boolean {
+    fun autoFixVerificationViolations(clonedApp: ClonedApp, context: Context): Boolean {
         try {
             Log.d(TAG, "Auto-fixing verification violations for ${clonedApp.clonedAppName}")
             
             var fixesApplied = false
             
             // Fix data isolation issues
-            if (!verifyDataIsolation(clonedApp)) {
+            if (!verifyDataIsolation(context, clonedApp.id)) {
                 Log.d(TAG, "Fixing data isolation issues")
                 val cloneContext = CloneContextWrapper(context, clonedApp.cloneId ?: "default")
-                createFreshAppEnvironment(clonedApp, cloneContext)
+                createFreshAppEnvironment(context, clonedApp, cloneContext)
                 fixesApplied = true
             }
             
             // Fix login state issues
-            if (!verifyLoginStateIsolation(clonedApp)) {
+            if (!verifyLoginStateIsolation(context, clonedApp)) {
                 Log.d(TAG, "Fixing login state isolation issues")
                 val cloneContext = CloneContextWrapper(context, clonedApp.cloneId ?: "default")
                 // Note: enforceFreshLogin needs sandbox parameter, will be fixed separately
@@ -5031,7 +4950,7 @@ class VirtualSpaceEngine(private val context: Context) {
             val monitoringPrefs = context.getSharedPreferences("${clonedApp.clonedPackageName}_monitoring", Context.MODE_PRIVATE)
             if (!monitoringPrefs.getBoolean("real_time_monitoring_active", false)) {
                 Log.d(TAG, "Starting real-time monitoring")
-                startRealTimeMonitoring(clonedApp)
+                startRealTimeMonitoring(context, clonedApp)
                 fixesApplied = true
             }
             
@@ -5039,7 +4958,7 @@ class VirtualSpaceEngine(private val context: Context) {
             val blockingPrefs = context.getSharedPreferences("${clonedApp.clonedPackageName}_blocking", Context.MODE_PRIVATE)
             if (!blockingPrefs.getBoolean("original_data_blocked", false)) {
                 Log.d(TAG, "Blocking original data access")
-                blockOriginalDataAccess(clonedApp)
+                blockOriginalDataAccess(context, clonedApp)
                 fixesApplied = true
             }
             

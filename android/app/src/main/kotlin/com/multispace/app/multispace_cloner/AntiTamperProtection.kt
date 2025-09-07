@@ -264,8 +264,8 @@ class AntiTamperProtection private constructor() {
         
         // Check for Frida libraries
         try {
-            System.loadLibrary("frida-gadget")
-            return true
+            // System.loadLibrary("frida-gadget") // Commented out to prevent crash
+            // return true
         } catch (e: Exception) {
             // Frida gadget not found
         }

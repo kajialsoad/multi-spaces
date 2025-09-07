@@ -445,7 +445,12 @@ class SecurityManager private constructor(private val context: Context) {
                 PackageManager.GET_SIGNATURES
             )
             
-            for (signature in packageInfo.signatures) {
+            val signatures: Array<Signature>? = packageInfo.signatures
+            if (signatures.isNullOrEmpty()) {
+                Log.w(TAG, "No signatures found for package: ${context.packageName}")
+                return false
+            }
+            for (signature in signatures) {
                 val signatureHash = sha256Hash(signature.toByteArray())
                 // In production, compare with your actual app signature
                 Log.d(TAG, "App signature hash: $signatureHash")
