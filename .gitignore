@@ -30,6 +30,7 @@ migrate_working_dir/
 .pub-cache/
 build/
 **/build/
+build_android/
 .flutter-plugins
 .flutter-plugins-dependencies
 .melos_tool/
